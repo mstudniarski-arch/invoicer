@@ -120,3 +120,11 @@ def test_classify_non_eu_uk_no_vat():
     assert c.treatment == TaxTreatment.IMPORT_USLUG
     assert c.human_must_confirm  # czlowiek musi potwierdzic
     assert "GBP" in c.currency_note
+
+
+def test_classify_eu_foreign_de():
+    inv = _foreign_invoice()
+    inv.seller.country = "DE"
+    update = classify_node({"invoice": inv})
+    assert update["classification"].country_bucket == CountryBucket.UE
+    assert update["classification"].treatment == TaxTreatment.IMPORT_USLUG

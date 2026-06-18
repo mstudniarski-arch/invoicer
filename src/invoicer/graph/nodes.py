@@ -36,6 +36,8 @@ def make_validate_node(ledger: Ledger):
     return validate
 
 
+# 27 panstw UE (zawiera PL). Sprzedawca z PL jest obslugiwany wczesniej (galaz country == "PL"),
+# wiec tu zbior sluzy tylko do rozroznienia UE vs poza-UE dla sprzedawcow zagranicznych.
 EU_COUNTRIES = frozenset(
     {
         "AT",
@@ -95,9 +97,7 @@ def classify_node(state: InvoiceState) -> dict:
             treatment=TaxTreatment.IMPORT_USLUG,
             country_bucket=bucket,
             confidence=0.6,
-            rationale_pl=(
-                "Sprzedawca zagraniczny / brak VAT — domyslnie import uslug (odwrotne obciazenie)."
-            ),
+            rationale_pl=("Sprzedawca zagraniczny — domyslnie import uslug (odwrotne obciazenie)."),
             human_must_confirm=[
                 "usluga czy towar?",
                 "stawka do samonaliczenia (zwykle 23%)",
