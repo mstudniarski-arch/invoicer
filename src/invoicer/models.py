@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Party(BaseModel):
@@ -78,3 +78,28 @@ class ValidationResult(BaseModel):
     @property
     def ok(self) -> bool:
         return not self.hard_errors
+
+
+class CountryBucket(StrEnum):
+    PL = "PL"
+    UE = "UE"
+    POZA_UE = "poza_UE"
+
+
+class TaxTreatment(StrEnum):
+    KRAJOWA = "krajowa"
+    IMPORT_USLUG = "import_uslug"
+    IMPORT_TOWAROW = "import_towarow"
+    WNT = "wnt"
+    INNE = "inne"
+
+
+class Classification(BaseModel):
+    """Proponowane traktowanie podatkowe faktury (potwierdza czlowiek)."""
+
+    treatment: TaxTreatment
+    country_bucket: CountryBucket
+    confidence: float = 1.0
+    rationale_pl: str = ""
+    human_must_confirm: list[str] = Field(default_factory=list)
+    currency_note: str = ""

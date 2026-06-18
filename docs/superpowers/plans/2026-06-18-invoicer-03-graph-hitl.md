@@ -459,6 +459,8 @@ from invoicer.models import Classification, CountryBucket, TaxTreatment
 
 Append at the END of the file:
 ```python
+# 27 panstw UE (zawiera PL). Sprzedawca z PL jest obslugiwany wczesniej (galaz country == "PL"),
+# wiec tu zbior sluzy tylko do rozroznienia UE vs poza-UE dla sprzedawcow zagranicznych.
 EU_COUNTRIES = frozenset(
     {
         "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
@@ -492,7 +494,7 @@ def classify_node(state: InvoiceState) -> dict:
             treatment=TaxTreatment.IMPORT_USLUG,
             country_bucket=bucket,
             confidence=0.6,
-            rationale_pl="Sprzedawca zagraniczny / brak VAT — domyslnie import uslug (odwrotne obciazenie).",
+            rationale_pl="Sprzedawca zagraniczny — domyslnie import uslug (odwrotne obciazenie).",
             human_must_confirm=[
                 "usluga czy towar?",
                 "stawka do samonaliczenia (zwykle 23%)",
@@ -597,6 +599,11 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
 
     def book(state: InvoiceState) -> dict:
         invoice = state["invoice"]
+        # Idempotencja (spec §7): zaden zapis, jesli faktura juz w ledger (np. podwojny resume).
+        if ledger.is_duplicate(invoice.number, invoice.seller.nip, invoice.seller.name):
+            raise RuntimeError(
+                f"Faktura {invoice.number} jest juz zaksiegowana — przerwano podwojne ksiegowanie"
+            )
         classification = state["classification"]
         payload = invoice_to_booking_payload(invoice, treatment=str(classification.treatment))
         result = sink.post(payload)

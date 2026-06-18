@@ -6,3 +6,5 @@ __pycache__/
 .env
 *.sqlite
 .DS_Store
+.idea/
+*.iml
