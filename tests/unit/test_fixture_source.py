@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from invoicer.adapters.fixture_source import FixtureSource
 from invoicer.ports import EmailSource
 
@@ -29,3 +31,15 @@ def test_fetch_filters_by_sender(tmp_path):
 def test_fetch_returns_empty_for_unknown_sender(tmp_path):
     _write_fixture(tmp_path, "a", "ksiegowa@klient.pl")
     assert FixtureSource(tmp_path).fetch("nieznany@x.pl") == []
+
+
+def test_fetch_raises_when_sidecar_missing(tmp_path):
+    (tmp_path / "orphan.pdf").write_bytes(b"%PDF-1.4 x")
+
+    with pytest.raises(FileNotFoundError):
+        FixtureSource(tmp_path).fetch("anyone@x.pl")
+
+
+def test_fetch_raises_when_directory_missing(tmp_path):
+    with pytest.raises(NotADirectoryError):
+        FixtureSource(tmp_path / "nope").fetch("anyone@x.pl")
