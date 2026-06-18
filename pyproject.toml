@@ -1,0 +1,27 @@
+[project]
+name = "invoicer"
+version = "0.1.0"
+description = "Agentowy asystent ksiegowy — pobiera, waliduje i klasyfikuje faktury (PL tax), z bramka human-in-the-loop."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -208,7 +208,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
@@ -246,7 +246,7 @@ class Invoice(BaseModel):
     extraction_confidence: float | None = None
 
 
-class CheckStatus(str, Enum):
+class CheckStatus(StrEnum):
     PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
@@ -449,7 +449,7 @@ _CENT = Decimal("0.01")
 
 
 def totals_consistent(invoice: Invoice) -> bool:
-    """Sprawdza netto+VAT=brutto globalnie oraz zgodnosc sum pozycji z naglowkiem.
+    """Sprawdza netto+VAT=brutto per pozycja i globalnie oraz zgodnosc sum pozycji z naglowkiem.
 
     Tolerancja groszowa na zaokraglenia.
     """
@@ -461,6 +461,7 @@ def totals_consistent(invoice: Invoice) -> bool:
         and abs(sum_vat - invoice.total_vat) <= _CENT
         and abs(sum_gross - invoice.total_gross) <= _CENT
         and abs((invoice.total_net + invoice.total_vat) - invoice.total_gross) <= _CENT
+        and all(abs((line.net + line.vat) - line.gross) <= _CENT for line in invoice.lines)
     )
 ```
 
