@@ -98,3 +98,12 @@ def test_validate_invoice_inconsistent_sums_fails():
     assert vr.ok is False
     sums_check = next(c for c in vr.checks if c.name == "sums")
     assert sums_check.status == CheckStatus.FAIL
+
+
+def test_validate_invoice_no_lines_fails():
+    inv = _invoice("0.00", "0.00", "0.00")
+    inv.lines = []  # zerowe sumy => "sums" PASS, brak pozycji => "lines" FAIL
+    vr = validate_invoice(inv)
+    assert vr.ok is False
+    lines_check = next(c for c in vr.checks if c.name == "lines")
+    assert lines_check.status == CheckStatus.FAIL
