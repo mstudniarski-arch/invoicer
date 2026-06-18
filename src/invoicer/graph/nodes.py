@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from invoicer.ledger import Ledger
+from invoicer.models import Classification, CountryBucket, TaxTreatment
 from invoicer.ports import InvoiceExtractor
 from invoicer.state import InvoiceState
 from invoicer.validation import validate_invoice
@@ -33,3 +34,75 @@ def make_validate_node(ledger: Ledger):
         return {"validation": validate_invoice(state["invoice"], ledger=ledger)}
 
     return validate
+
+
+EU_COUNTRIES = frozenset(
+    {
+        "AT",
+        "BE",
+        "BG",
+        "HR",
+        "CY",
+        "CZ",
+        "DK",
+        "EE",
+        "FI",
+        "FR",
+        "DE",
+        "GR",
+        "HU",
+        "IE",
+        "IT",
+        "LV",
+        "LT",
+        "LU",
+        "MT",
+        "NL",
+        "PL",
+        "PT",
+        "RO",
+        "SK",
+        "SI",
+        "ES",
+        "SE",
+    }
+)
+
+
+def classify_node(state: InvoiceState) -> dict:
+    """Wezel `classify`: deterministyczne traktowanie podatkowe wg kraju sprzedawcy.
+
+    PL -> krajowa. Zagranica -> domyslnie import uslug (odwrotne obciazenie),
+    z lista rzeczy do potwierdzenia przez czlowieka. Bogate rozumowanie LLM
+    (reason_exception) dochodzi w Planie 04.
+    """
+    invoice = state["invoice"]
+    country = invoice.seller.country.upper()
+    if country == "PL":
+        classification = Classification(
+            treatment=TaxTreatment.KRAJOWA,
+            country_bucket=CountryBucket.PL,
+            rationale_pl="Sprzedawca z PL — faktura krajowa.",
+        )
+    else:
+        bucket = CountryBucket.UE if country in EU_COUNTRIES else CountryBucket.POZA_UE
+        currency_note = (
+            ""
+            if invoice.currency == "PLN"
+            else f"Waluta {invoice.currency} — przelicz po kursie NBP."
+        )
+        classification = Classification(
+            treatment=TaxTreatment.IMPORT_USLUG,
+            country_bucket=bucket,
+            confidence=0.6,
+            rationale_pl=(
+                "Sprzedawca zagraniczny / brak VAT — domyslnie import uslug (odwrotne obciazenie)."
+            ),
+            human_must_confirm=[
+                "usluga czy towar?",
+                "stawka do samonaliczenia (zwykle 23%)",
+                "kurs waluty (NBP z dnia poprzedzajacego)",
+            ],
+            currency_note=currency_note,
+        )
+    return {"classification": classification}

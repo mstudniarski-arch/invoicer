@@ -2,9 +2,17 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from invoicer.adapters.stub_extractor import StubExtractor
-from invoicer.graph.nodes import make_extract_node, make_validate_node
+from invoicer.graph.nodes import classify_node, make_extract_node, make_validate_node
 from invoicer.ledger import Ledger, LedgerEntry
-from invoicer.models import CheckStatus, Invoice, InvoiceDocument, LineItem, Party
+from invoicer.models import (
+    CheckStatus,
+    CountryBucket,
+    Invoice,
+    InvoiceDocument,
+    LineItem,
+    Party,
+    TaxTreatment,
+)
 
 
 def _invoice(confidence=0.95) -> Invoice:
@@ -82,3 +90,33 @@ def test_validate_node_flags_duplicate(tmp_path):
     assert update["validation"].ok is False
     dup = next(c for c in update["validation"].checks if c.name == "duplicate")
     assert dup.status == CheckStatus.FAIL
+
+
+def _foreign_invoice() -> Invoice:
+    inv = _invoice()
+    inv.seller = Party(name="Foreign Ltd", country="GB", vat_id="GB123")
+    inv.seller.nip = None
+    inv.total_vat = Decimal("0.00")
+    inv.total_gross = Decimal("1000.00")
+    inv.currency = "GBP"
+    inv.lines[0].vat = Decimal("0.00")
+    inv.lines[0].vat_rate = Decimal("0.00")
+    inv.lines[0].gross = Decimal("1000.00")
+    return inv
+
+
+def test_classify_domestic_pl():
+    update = classify_node({"invoice": _invoice()})
+    c = update["classification"]
+    assert c.country_bucket == CountryBucket.PL
+    assert c.treatment == TaxTreatment.KRAJOWA
+    assert c.human_must_confirm == []
+
+
+def test_classify_non_eu_uk_no_vat():
+    update = classify_node({"invoice": _foreign_invoice()})
+    c = update["classification"]
+    assert c.country_bucket == CountryBucket.POZA_UE
+    assert c.treatment == TaxTreatment.IMPORT_USLUG
+    assert c.human_must_confirm  # czlowiek musi potwierdzic
+    assert "GBP" in c.currency_note
