@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
@@ -20,6 +20,7 @@ class LineItem(BaseModel):
     quantity: Decimal
     unit_net: Decimal
     vat_rate: Decimal  # np. Decimal("0.23")
+    # net/vat/gross: wartosci wyekstrahowane z faktury (nie wyliczamy) — spojnosc sprawdza walidacja
     net: Decimal
     vat: Decimal
     gross: Decimal
@@ -40,7 +41,7 @@ class Invoice(BaseModel):
     extraction_confidence: float | None = None
 
 
-class CheckStatus(str, Enum):
+class CheckStatus(StrEnum):
     PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
