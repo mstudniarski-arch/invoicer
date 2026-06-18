@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from invoicer.ledger import Ledger
 from invoicer.models import Check, CheckStatus, Invoice, ValidationResult
 
 NIP_WEIGHTS = (6, 5, 7, 2, 3, 4, 5, 6, 7)
@@ -49,11 +50,13 @@ def totals_consistent(invoice: Invoice) -> bool:
     )
 
 
-def validate_invoice(invoice: Invoice) -> ValidationResult:
+def validate_invoice(invoice: Invoice, ledger: Ledger | None = None) -> ValidationResult:
     """Łączy kontrole deterministyczne w jeden ValidationResult.
 
     NIP wymagany tylko dla sprzedawcy z PL; zagraniczny → WARN (nie FAIL).
-    Duplikaty dochodza w Planie 02 (potrzebuja ledger).
+    Jesli ledger jest podany, sprawdza duplikaty (numer + NIP/nazwa sprzedawcy).
+    Duplikat ustawia check "duplicate" na FAIL i is_duplicate=True, blokujac ksiegowanie.
+    Bez ledgera duplikaty nie sa sprawdzane (zachowanie z Planu 01).
     """
     checks: list[Check] = []
 
@@ -93,4 +96,18 @@ def validate_invoice(invoice: Invoice) -> ValidationResult:
     else:
         checks.append(Check(name="lines", status=CheckStatus.FAIL, detail="Brak pozycji"))
 
-    return ValidationResult(checks=checks)
+    is_duplicate = False
+    if ledger is not None:
+        is_duplicate = ledger.is_duplicate(invoice.number, invoice.seller.nip, invoice.seller.name)
+        if is_duplicate:
+            checks.append(
+                Check(
+                    name="duplicate",
+                    status=CheckStatus.FAIL,
+                    detail="Faktura juz zaksiegowana (numer + sprzedawca)",
+                )
+            )
+        else:
+            checks.append(Check(name="duplicate", status=CheckStatus.PASS))
+
+    return ValidationResult(checks=checks, is_duplicate=is_duplicate)

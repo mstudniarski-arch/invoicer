@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -41,6 +41,16 @@ class Invoice(BaseModel):
     extraction_confidence: float | None = None
 
 
+class InvoiceDocument(BaseModel):
+    """Surowy dokument wejsciowy (zalacznik e-mail) zanim nastapi ekstrakcja."""
+
+    sender: str
+    received_at: datetime
+    filename: str
+    content: bytes
+    subject: str = ""
+
+
 class CheckStatus(StrEnum):
     PASS = "pass"
     WARN = "warn"
@@ -55,6 +65,7 @@ class Check(BaseModel):
 
 class ValidationResult(BaseModel):
     checks: list[Check]
+    is_duplicate: bool = False
 
     @property
     def hard_errors(self) -> list[Check]:

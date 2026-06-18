@@ -239,13 +239,17 @@ class BookingResult(BaseModel):
 
 
 def invoice_to_booking_payload(invoice: Invoice, treatment: str | None = None) -> BookingPayload:
-    """Mapuje zwalidowana fakture na dekret dla programu ksiegowego."""
+    """Mapuje zwalidowana fakture na niezalezny snapshot-dekret dla programu ksiegowego.
+
+    Zagniezdzone modele (seller/buyer/lines) sa kopiowane (deep), wiec pozniejsze
+    zmiany faktury nie wplywaja na juz utworzony dekret (ani odwrotnie).
+    """
     return BookingPayload(
-        seller=invoice.seller,
-        buyer=invoice.buyer,
+        seller=invoice.seller.model_copy(deep=True),
+        buyer=invoice.buyer.model_copy(deep=True),
         number=invoice.number,
         currency=invoice.currency,
-        lines=invoice.lines,
+        lines=[line.model_copy(deep=True) for line in invoice.lines],
         total_net=invoice.total_net,
         total_vat=invoice.total_vat,
         total_gross=invoice.total_gross,
@@ -520,25 +524,31 @@ from invoicer.models import InvoiceDocument
 class FixtureSource:
     """EmailSource oparty o lokalny katalog fixture'ow (testy i demo offline).
 
-    Dla pliku `<name>.pdf` oczekuje sidecara `<name>.json`:
+    Sidecar `<name>.json` jest WYMAGANY dla kazdego `<name>.pdf`:
     {"sender": "...", "subject": "...", "received_at": "2026-06-01T10:00:00"}.
+    sender/subject opcjonalne w sidecarze; received_at wymagane. Brak sidecara
+    lub katalogu => glosny blad (fail-fast), nie cichy default.
     """
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
 
     def _load(self) -> list[InvoiceDocument]:
+        if not self.directory.is_dir():
+            raise NotADirectoryError(f"Katalog fixture'ow nie istnieje: {self.directory}")
         docs: list[InvoiceDocument] = []
         for pdf in sorted(self.directory.glob("*.pdf")):
             meta_path = pdf.with_suffix(".json")
-            meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+            if not meta_path.exists():
+                raise FileNotFoundError(
+                    f"Brak sidecara metadanych '{meta_path.name}' dla fixture '{pdf.name}'"
+                )
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
             docs.append(
                 InvoiceDocument(
                     sender=meta.get("sender", ""),
                     subject=meta.get("subject", ""),
-                    received_at=datetime.fromisoformat(
-                        meta.get("received_at", "1970-01-01T00:00:00")
-                    ),
+                    received_at=datetime.fromisoformat(meta["received_at"]),
                     filename=pdf.name,
                     content=pdf.read_bytes(),
                 )
@@ -548,6 +558,10 @@ class FixtureSource:
     def fetch(self, sender: str) -> list[InvoiceDocument]:
         return [doc for doc in self._load() if doc.sender == sender]
 ```
+
+> Uwaga (decyzja z review): sidecar i katalog są wymagane — zepsuty fixture ma
+> być głośny. Dochodzą 2 testy: `test_fetch_raises_when_sidecar_missing`,
+> `test_fetch_raises_when_directory_missing`.
 
 - [ ] **Step 4: Run test to verify pass** — `uv run pytest tests/unit/test_fixture_source.py -v` → PASS (3).
 
