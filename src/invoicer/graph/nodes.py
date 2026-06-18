@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from invoicer.ledger import Ledger
+from collections.abc import Callable
+from datetime import datetime
+
+from langgraph.types import interrupt
+
+from invoicer.booking import invoice_to_booking_payload
+from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import Classification, CountryBucket, TaxTreatment
-from invoicer.ports import InvoiceExtractor
+from invoicer.ports import AccountingSink, InvoiceExtractor
 from invoicer.state import InvoiceState
 from invoicer.validation import validate_invoice
 
@@ -106,3 +112,56 @@ def classify_node(state: InvoiceState) -> dict:
             currency_note=currency_note,
         )
     return {"classification": classification}
+
+
+def human_review(state: InvoiceState) -> dict:
+    """Wezel `human_review`: zatrzymuje graf (interrupt) i czeka na decyzje czlowieka.
+
+    Zwracana wartosc resume (Command(resume=...)) trafia do human_decision.
+    """
+    invoice = state["invoice"]
+    validation = state["validation"]
+    classification = state["classification"]
+    payload = {
+        "number": invoice.number,
+        "seller": invoice.seller.name,
+        "country": invoice.seller.country,
+        "total_gross": str(invoice.total_gross),
+        "currency": invoice.currency,
+        "validation_ok": validation.ok,
+        "flags": [c.name for c in validation.hard_errors] + list(state.get("errors", [])),
+        "treatment": str(classification.treatment),
+        "rationale": classification.rationale_pl,
+        "must_confirm": classification.human_must_confirm,
+    }
+    decision = interrupt(payload)
+    return {"human_decision": decision}
+
+
+def route_after_review(state: InvoiceState) -> str:
+    """Krawedz warunkowa po human_review: tylko 'approve' prowadzi do ksiegowania."""
+    return "book" if state.get("human_decision") == "approve" else "end"
+
+
+def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str] | None = None):
+    """Wezel `book`: mapuje na dekret, ksieguje (sink) i dopisuje do ledger (audyt + duplikaty)."""
+    clock = clock or (lambda: datetime.now().isoformat(timespec="seconds"))
+
+    def book(state: InvoiceState) -> dict:
+        invoice = state["invoice"]
+        classification = state["classification"]
+        payload = invoice_to_booking_payload(invoice, treatment=str(classification.treatment))
+        result = sink.post(payload)
+        ledger.append(
+            LedgerEntry(
+                number=invoice.number,
+                seller_nip=invoice.seller.nip,
+                seller_name=invoice.seller.name,
+                total_gross=str(invoice.total_gross),
+                booking_id=result.booking_id,
+                booked_at=clock(),
+            )
+        )
+        return {"booking": result}
+
+    return book

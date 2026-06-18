@@ -1,11 +1,19 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
-from invoicer.graph.nodes import classify_node, make_extract_node, make_validate_node
+from invoicer.graph.nodes import (
+    classify_node,
+    make_book_node,
+    make_extract_node,
+    make_validate_node,
+    route_after_review,
+)
 from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import (
     CheckStatus,
+    Classification,
     CountryBucket,
     Invoice,
     InvoiceDocument,
@@ -128,3 +136,25 @@ def test_classify_eu_foreign_de():
     update = classify_node({"invoice": inv})
     assert update["classification"].country_bucket == CountryBucket.UE
     assert update["classification"].treatment == TaxTreatment.IMPORT_USLUG
+
+
+def test_route_after_review_approve_goes_to_book():
+    assert route_after_review({"human_decision": "approve"}) == "book"
+
+
+def test_route_after_review_reject_goes_to_end():
+    assert route_after_review({"human_decision": "reject"}) == "end"
+    assert route_after_review({}) == "end"
+
+
+def test_book_node_posts_and_records_ledger(tmp_path):
+    ledger = Ledger(tmp_path / "l.jsonl")
+    node = make_book_node(MockSubiektSink(), ledger, clock=lambda: "2026-06-01T10:00:00")
+    inv = _invoice()
+    classification = Classification(treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL)
+    update = node({"invoice": inv, "classification": classification})
+    assert update["booking"].booking_id == "MOCK-FV/1"
+    assert ledger.is_duplicate(inv.number, inv.seller.nip, inv.seller.name) is True
+    entry = ledger.entries()[0]
+    assert entry.booked_at == "2026-06-01T10:00:00"
+    assert entry.booking_id == "MOCK-FV/1"
