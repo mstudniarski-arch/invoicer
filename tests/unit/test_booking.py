@@ -46,3 +46,12 @@ def test_mapper_carries_treatment_when_given():
 def test_booking_result_defaults_status_posted():
     res = BookingResult(booking_id="MOCK-1", sink="mock-subiekt")
     assert res.status == "posted"
+
+
+def test_payload_is_independent_snapshot():
+    invoice = _invoice()
+    payload = invoice_to_booking_payload(invoice)
+    payload.seller.name = "ZMIENIONE"
+    payload.lines[0].gross = Decimal("9999.99")
+    assert invoice.seller.name == "ACME"
+    assert invoice.lines[0].gross == Decimal("1230.00")
