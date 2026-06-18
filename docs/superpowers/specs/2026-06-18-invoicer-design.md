@@ -240,16 +240,25 @@ księgowanie — dlatego bezpieczeństwo jest projektowane od początku, nie dok
   `.gitignore`; szyfrowanie at-rest; rotacja; least-privilege.
 - **Least privilege.** Gmail scope = `gmail.readonly`, zawężony do konkretnego
   nadawcy; brak prawa wysyłki/modyfikacji skrzynki.
-- **PII / RODO.** Faktury zawierają dane osobowe i finansowe: przetwarzanie
-  lokalne gdzie możliwe; minimalizacja danych wysyłanych do API LLM (redakcja
-  zbędnych PII); polityka retencji; kontrola dostępu do `ledger`/audytu;
-  szyfrowanie danych wrażliwych at-rest.
+- **PII / RODO.** Faktury zawierają dane osobowe i finansowe. **Fakt
+  architektoniczny:** krok `extract` (vision) wymaga wysłania całego PDF do
+  Claude — tam redakcja jest niemożliwa; mitygacja = minimalizacja (tylko ta
+  faktura, nie cała skrzynka), świadomość przetwarzania w Anthropic API, brak
+  trwałego przechowywania surowych obrazów dłużej niż potrzeba. Redakcja celuje
+  w **kroki rozumujące** (`reason_exception`, sędzia-LLM), które dostają już
+  tylko wyekstrahowane pola — wg **allowlisty minimum do klasyfikacji**: kraj
+  sprzedawcy, obecność/brak VAT, stawki, kwoty, waluta, opisy pozycji. **Poza
+  allowlistą** (nie wysyłane): numery kont, dane osobowe osób kontaktowych,
+  pełne adresy nabywcy, e-mail/telefon. Dodatkowo: przetwarzanie lokalne gdzie
+  możliwe, polityka retencji, kontrola dostępu do `ledger`/audytu, szyfrowanie
+  danych wrażliwych at-rest.
 - **Bezpieczne parsowanie PDF.** Złośliwe PDF-y mogą wykorzystać luki parserów:
   izolacja parsowania, limity rozmiaru, brak wykonywania osadzonych skryptów.
 - **Łańcuch dostaw.** `uv.lock` z przypiętymi wersjami; skan zależności
   (`pip-audit`); brak nieufnych pakietów.
-- **Integralność audytu.** `AuditRecord` append-only z hash-chainingiem
-  (wykrycie manipulacji); brak wycieku sekretów/PII do logów i traceów.
+- **Integralność audytu (w MVP).** `AuditRecord` append-only (JSONL), każdy wpis
+  trzyma SHA-256 poprzedniego (tamper-evident łańcuch); brak wycieku sekretów/PII
+  do logów i traceów.
 - **Dane do LLM.** Świadomość, że PDF faktury trafia do Anthropic API —
   uwzględnione w polityce przetwarzania; redakcja, gdzie to możliwe.
 - **Przegląd bezpieczeństwa** jako element CI/kamieni milowych (m.in. threat
@@ -332,9 +341,16 @@ walidacyjne; `SubiektSferaSink` (Windows/COM); wejście KSeF XML.
 
 ---
 
-## 13. Pytania otwarte
+## 13. Decyzje (rozstrzygnięte)
 
-- (brak blokujących — `human_review` = CLI **i** Streamlit; evals = kasety +
-  flaga `--live`; bezpieczeństwo = sekcja 9 jako wymóg pierwszej klasy).
-- Do rozstrzygnięcia na etapie planu: czy łańcuch audytu (hash-chaining) w MVP,
-  czy zostawić jako szew; zakres redakcji PII wysyłanej do LLM (które pola).
+- `human_review` = CLI **i** Streamlit.
+- Evals = kasety (deterministyczne CI) + flaga `--live`.
+- Bezpieczeństwo = sekcja 9 jako wymóg pierwszej klasy.
+- **Łańcuch audytu (hash-chaining): w MVP** — append-only JSONL z SHA-256
+  poprzedniego wpisu.
+- **Redakcja PII do LLM:** `extract` (vision) wysyła cały PDF (nieuniknione);
+  kroki rozumujące dostają tylko allowlistę pól (kraj, VAT, kwoty, waluta, opisy
+  pozycji); numery kont / dane osobowe / pełne adresy nie są wysyłane; logi
+  maskują NIP/konta.
+
+Brak pytań blokujących — spec gotowy do planu implementacji.
