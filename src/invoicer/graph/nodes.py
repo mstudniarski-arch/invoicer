@@ -149,6 +149,10 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
 
     def book(state: InvoiceState) -> dict:
         invoice = state["invoice"]
+        if ledger.is_duplicate(invoice.number, invoice.seller.nip, invoice.seller.name):
+            raise RuntimeError(
+                f"Faktura {invoice.number} jest juz zaksiegowana — przerwano podwojne ksiegowanie"
+            )
         classification = state["classification"]
         payload = invoice_to_booking_payload(invoice, treatment=str(classification.treatment))
         result = sink.post(payload)

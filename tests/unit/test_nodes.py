@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+import pytest
+
 from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.graph.nodes import (
@@ -158,3 +160,26 @@ def test_book_node_posts_and_records_ledger(tmp_path):
     entry = ledger.entries()[0]
     assert entry.booked_at == "2026-06-01T10:00:00"
     assert entry.booking_id == "MOCK-FV/1"
+
+
+def test_route_after_review_edit_goes_to_end():
+    assert route_after_review({"human_decision": "edit"}) == "end"
+
+
+def test_book_node_blocks_double_booking(tmp_path):
+    ledger = Ledger(tmp_path / "l.jsonl")
+    inv = _invoice()
+    ledger.append(
+        LedgerEntry(
+            number=inv.number,
+            seller_nip=inv.seller.nip,
+            seller_name=inv.seller.name,
+            total_gross=str(inv.total_gross),
+            booking_id="MOCK-1",
+            booked_at="2026-06-01T10:00:00",
+        )
+    )
+    node = make_book_node(MockSubiektSink(), ledger, clock=lambda: "2026-06-01T10:00:00")
+    classification = Classification(treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL)
+    with pytest.raises(RuntimeError):
+        node({"invoice": inv, "classification": classification})
