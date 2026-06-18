@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from invoicer.models import Invoice
+from invoicer.models import Check, CheckStatus, Invoice, ValidationResult
 
 NIP_WEIGHTS = (6, 5, 7, 2, 3, 4, 5, 6, 7)
 
@@ -45,3 +45,50 @@ def totals_consistent(invoice: Invoice) -> bool:
         and abs(sum_gross - invoice.total_gross) <= _CENT
         and abs((invoice.total_net + invoice.total_vat) - invoice.total_gross) <= _CENT
     )
+
+
+def validate_invoice(invoice: Invoice) -> ValidationResult:
+    """Łączy kontrole deterministyczne w jeden ValidationResult.
+
+    NIP wymagany tylko dla sprzedawcy z PL; zagraniczny → WARN (nie FAIL).
+    Duplikaty dochodza w Planie 02 (potrzebuja ledger).
+    """
+    checks: list[Check] = []
+
+    if invoice.seller.country == "PL":
+        if nip_checksum_valid(invoice.seller.nip):
+            checks.append(Check(name="nip", status=CheckStatus.PASS))
+        else:
+            checks.append(
+                Check(
+                    name="nip",
+                    status=CheckStatus.FAIL,
+                    detail="Niepoprawny NIP sprzedawcy (suma kontrolna)",
+                )
+            )
+    else:
+        checks.append(
+            Check(
+                name="nip",
+                status=CheckStatus.WARN,
+                detail="Sprzedawca zagraniczny — NIP PL nie dotyczy",
+            )
+        )
+
+    if totals_consistent(invoice):
+        checks.append(Check(name="sums", status=CheckStatus.PASS))
+    else:
+        checks.append(
+            Check(
+                name="sums",
+                status=CheckStatus.FAIL,
+                detail="Niespojne sumy (netto+VAT≠brutto lub Σ pozycji)",
+            )
+        )
+
+    if invoice.lines:
+        checks.append(Check(name="lines", status=CheckStatus.PASS))
+    else:
+        checks.append(Check(name="lines", status=CheckStatus.FAIL, detail="Brak pozycji"))
+
+    return ValidationResult(checks=checks)

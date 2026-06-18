@@ -1,8 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
-from invoicer.models import Invoice, LineItem, Party
-from invoicer.validation import nip_checksum_valid, totals_consistent
+from invoicer.models import CheckStatus, Invoice, LineItem, Party
+from invoicer.validation import nip_checksum_valid, totals_consistent, validate_invoice
 
 
 def test_valid_nip_plain():
@@ -66,3 +66,35 @@ def test_totals_inconsistent_gross():
 
 def test_totals_inconsistent_with_lines_sum():
     assert totals_consistent(_invoice("999.00", "230.00", "1229.00")) is False
+
+
+def test_validate_invoice_all_pass():
+    vr = validate_invoice(_invoice("1000.00", "230.00", "1230.00"))
+    assert vr.ok is True
+    assert {c.name for c in vr.checks} == {"nip", "sums", "lines"}
+
+
+def test_validate_invoice_bad_nip_fails():
+    inv = _invoice("1000.00", "230.00", "1230.00")
+    inv.seller.nip = "5260001247"  # zla suma kontrolna
+    vr = validate_invoice(inv)
+    assert vr.ok is False
+    nip_check = next(c for c in vr.checks if c.name == "nip")
+    assert nip_check.status == CheckStatus.FAIL
+
+
+def test_validate_invoice_foreign_seller_nip_warn():
+    inv = _invoice("1000.00", "230.00", "1230.00")
+    inv.seller.country = "GB"
+    inv.seller.nip = None
+    vr = validate_invoice(inv)
+    nip_check = next(c for c in vr.checks if c.name == "nip")
+    assert nip_check.status == CheckStatus.WARN
+    assert vr.ok is True  # zagraniczny brak NIP nie jest twardym bledem
+
+
+def test_validate_invoice_inconsistent_sums_fails():
+    vr = validate_invoice(_invoice("1000.00", "230.00", "1300.00"))
+    assert vr.ok is False
+    sums_check = next(c for c in vr.checks if c.name == "sums")
+    assert sums_check.status == CheckStatus.FAIL
