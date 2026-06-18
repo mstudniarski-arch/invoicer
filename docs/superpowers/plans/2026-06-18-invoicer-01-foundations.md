@@ -208,7 +208,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
@@ -246,7 +246,7 @@ class Invoice(BaseModel):
     extraction_confidence: float | None = None
 
 
-class CheckStatus(str, Enum):
+class CheckStatus(StrEnum):
     PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
