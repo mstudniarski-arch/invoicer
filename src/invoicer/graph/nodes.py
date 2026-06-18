@@ -12,6 +12,9 @@ def make_extract_node(extractor: InvoiceExtractor):
     """Wezel `extract`: surowy dokument -> Invoice (przez wstrzykniety ekstraktor)."""
 
     def extract(state: InvoiceState) -> dict:
+        # Licznik 'absolutny': czytaj biezacy + 1 i zwroc wartosc. InvoiceState.extract_attempts
+        # celowo NIE ma reducera (domyslny LastValue/nadpisanie) — przy ewentualnej petli retry
+        # odczyt-inkrementacja-nadpisanie daje poprawna kumulacje. operator.add zepsuloby to.
         attempts = state.get("extract_attempts", 0) + 1
         invoice = extractor.extract(state["document"])
         update: dict = {"invoice": invoice, "extract_attempts": attempts}

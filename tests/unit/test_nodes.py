@@ -3,8 +3,8 @@ from decimal import Decimal
 
 from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.graph.nodes import make_extract_node, make_validate_node
-from invoicer.ledger import Ledger
-from invoicer.models import Invoice, InvoiceDocument, LineItem, Party
+from invoicer.ledger import Ledger, LedgerEntry
+from invoicer.models import CheckStatus, Invoice, InvoiceDocument, LineItem, Party
 
 
 def _invoice(confidence=0.95) -> Invoice:
@@ -56,3 +56,29 @@ def test_validate_node_runs_validation_with_ledger(tmp_path):
     update = node({"invoice": _invoice()})
     assert update["validation"].ok is True
     assert {c.name for c in update["validation"].checks} == {"nip", "sums", "lines", "duplicate"}
+
+
+def test_extract_node_accumulates_attempts():
+    node = make_extract_node(StubExtractor(_invoice()))
+    update = node({"document": _doc(), "extract_attempts": 3})
+    assert update["extract_attempts"] == 4  # odczyt biezacego (3) + 1 = wartosc absolutna
+
+
+def test_validate_node_flags_duplicate(tmp_path):
+    ledger = Ledger(tmp_path / "l.jsonl")
+    inv = _invoice()
+    ledger.append(
+        LedgerEntry(
+            number=inv.number,
+            seller_nip=inv.seller.nip,
+            seller_name=inv.seller.name,
+            total_gross=str(inv.total_gross),
+            booking_id="MOCK-1",
+            booked_at="2026-06-01T10:00:00",
+        )
+    )
+    update = make_validate_node(ledger)({"invoice": inv})
+    assert update["validation"].is_duplicate is True
+    assert update["validation"].ok is False
+    dup = next(c for c in update["validation"].checks if c.name == "duplicate")
+    assert dup.status == CheckStatus.FAIL
