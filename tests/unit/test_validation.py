@@ -107,3 +107,26 @@ def test_validate_invoice_no_lines_fails():
     assert vr.ok is False
     lines_check = next(c for c in vr.checks if c.name == "lines")
     assert lines_check.status == CheckStatus.FAIL
+
+
+def test_totals_inconsistent_per_line_even_if_sums_match():
+    # Dwie pozycje z bledami per-pozycja (+7 i -7), ktore kasuja sie w sumie:
+    # globalne sumy i netto+VAT=brutto sie zgadzaja, ale kazda pozycja jest niespojna.
+    line_a = LineItem(
+        description="A", quantity=Decimal("1"), unit_net=Decimal("100.00"),
+        vat_rate=Decimal("0.23"), net=Decimal("100.00"), vat=Decimal("23.00"),
+        gross=Decimal("130.00"),  # powinno byc 123.00
+    )
+    line_b = LineItem(
+        description="B", quantity=Decimal("1"), unit_net=Decimal("100.00"),
+        vat_rate=Decimal("0.23"), net=Decimal("100.00"), vat=Decimal("23.00"),
+        gross=Decimal("116.00"),  # powinno byc 123.00
+    )
+    inv = Invoice(
+        seller=Party(name="ACME", nip="5260001246", country="PL"),
+        buyer=Party(name="Klient", country="PL"),
+        number="FV/2", issue_date=date(2026, 6, 1),
+        lines=[line_a, line_b],
+        total_net=Decimal("200.00"), total_vat=Decimal("46.00"), total_gross=Decimal("246.00"),
+    )
+    assert totals_consistent(inv) is False

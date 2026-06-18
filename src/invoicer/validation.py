@@ -32,9 +32,10 @@ _CENT = Decimal("0.01")
 
 
 def totals_consistent(invoice: Invoice) -> bool:
-    """Sprawdza netto+VAT=brutto globalnie oraz zgodnosc sum pozycji z naglowkiem.
+    """Sprawdza netto+VAT=brutto globalnie, zgodnosc sum pozycji z naglowkiem oraz per-pozycja.
 
-    Tolerancja groszowa na zaokraglenia.
+    Tolerancja groszowa na zaokraglenia. Kazda pozycja musi spelniac net+vat=gross
+    (spec §6), zeby bledy per-pozycja nie mogly sie kasowac w sumie globalnej.
     """
     sum_net = sum((line.net for line in invoice.lines), Decimal("0"))
     sum_vat = sum((line.vat for line in invoice.lines), Decimal("0"))
@@ -44,6 +45,7 @@ def totals_consistent(invoice: Invoice) -> bool:
         and abs(sum_vat - invoice.total_vat) <= _CENT
         and abs(sum_gross - invoice.total_gross) <= _CENT
         and abs((invoice.total_net + invoice.total_vat) - invoice.total_gross) <= _CENT
+        and all(abs((line.net + line.vat) - line.gross) <= _CENT for line in invoice.lines)
     )
 
 
