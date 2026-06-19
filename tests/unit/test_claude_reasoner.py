@@ -109,6 +109,7 @@ def test_reason_merges_judgment_with_deterministic_bucket():
     assert out.confidence == 0.85
     assert out.rationale_pl == "SaaS z UK -> import uslug."
     assert llm.schema is ClassificationJudgment
+    assert llm.structured.received == [build_reason_message(_foreign_invoice())]
 
 
 def test_default_construction_does_not_raise():
