@@ -82,7 +82,7 @@ def classify_node(state: InvoiceState) -> dict:
 
     PL -> krajowa. Zagranica -> domyslnie import uslug (odwrotne obciazenie),
     z lista rzeczy do potwierdzenia przez czlowieka. Bogate rozumowanie LLM
-    (reason_exception) dochodzi w Planie 04.
+    dla faktur zagranicznych doklada wezel reason_exception (Plan 05).
     """
     invoice = state["invoice"]
     country = invoice.seller.country.upper()
