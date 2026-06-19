@@ -1,6 +1,8 @@
 import base64
 from datetime import datetime
 
+import pytest
+
 from invoicer.adapters.claude_extractor import EXTRACTION_PROMPT, build_extraction_message
 from invoicer.models import InvoiceDocument
 
@@ -36,3 +38,20 @@ def test_prompt_has_injection_defense():
     # tresc dokumentu jako DANE, nie instrukcje
     assert "DANE" in EXTRACTION_PROMPT
     assert "instrukcje" in EXTRACTION_PROMPT.lower()
+
+
+def test_uppercase_pdf_extension_uses_file_block():
+    msg = build_extraction_message(_doc("FAKTURA.PDF"))
+    assert msg.content[1]["type"] == "file"
+    assert msg.content[1]["mime_type"] == "application/pdf"
+
+
+def test_jpeg_extension_uses_image_block():
+    msg = build_extraction_message(_doc("skan.jpeg", content=b"\xff\xd8\xff"))
+    assert msg.content[1]["type"] == "image"
+    assert msg.content[1]["mime_type"] == "image/jpeg"
+
+
+def test_unsupported_extension_raises():
+    with pytest.raises(ValueError, match="Nieobslugiwany"):
+        build_extraction_message(_doc("dokument.tiff"))

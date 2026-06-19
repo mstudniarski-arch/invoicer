@@ -23,7 +23,9 @@ def _mime_and_block(filename: str) -> tuple[str, str]:
         return "image/png", "image"
     if lower.endswith((".jpg", ".jpeg")):
         return "image/jpeg", "image"
-    return "application/pdf", "file"
+    raise ValueError(
+        f"Nieobslugiwany typ pliku do ekstrakcji: {filename!r} (obslugiwane: pdf, png, jpg)"
+    )
 
 
 def build_extraction_message(document: InvoiceDocument) -> HumanMessage:
