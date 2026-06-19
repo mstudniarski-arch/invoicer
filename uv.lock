@@ -213,6 +213,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "langchain-anthropic" },
+    { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
 ]
@@ -226,6 +227,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "langchain-anthropic", specifier = ">=1.4.6" },
+    { name = "langchain-core", specifier = ">=1.4.7" },
     { name = "langgraph", specifier = ">=1.2.5" },
     { name = "pydantic", specifier = ">=2.7" },
 ]

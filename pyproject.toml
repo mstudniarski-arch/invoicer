@@ -5,6 +5,7 @@ description = "Agentowy asystent ksiegowy — pobiera, waliduje i klasyfikuje fa
 requires-python = ">=3.12"
 dependencies = [
     "langchain-anthropic>=1.4.6",
+    "langchain-core>=1.4.7",
     "langgraph>=1.2.5",
     "pydantic>=2.7",
 ]
