@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from invoicer.booking import BookingPayload, BookingResult
-from invoicer.models import Invoice, InvoiceDocument
+from invoicer.models import Classification, Invoice, InvoiceDocument
 
 
 @runtime_checkable
@@ -25,3 +25,10 @@ class InvoiceExtractor(Protocol):
     """Wyciaga ustrukturyzowana Invoice z surowego dokumentu (PDF/skan)."""
 
     def extract(self, document: InvoiceDocument) -> Invoice: ...
+
+
+@runtime_checkable
+class ExceptionReasoner(Protocol):
+    """Sedzia-LLM: wzbogaca deterministyczna klasyfikacje faktury zagranicznej."""
+
+    def reason(self, invoice: Invoice, base: Classification) -> Classification: ...
