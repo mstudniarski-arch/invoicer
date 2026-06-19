@@ -124,3 +124,9 @@ def test_extract_uses_structured_output_and_maps_to_invoice():
     assert llm.schema is InvoiceExtraction
     sent = llm.structured.received[0]
     assert any(b["type"] in ("file", "image") for b in sent.content)
+
+
+def test_default_construction_does_not_raise():
+    # bez llm i bez klucza API konstrukcja musi sie udac (ChatAnthropic tworzony leniwie)
+    extractor = ClaudeVisionExtractor()
+    assert extractor._model == "claude-sonnet-4-6"

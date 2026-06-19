@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import base64
+from typing import Any
 
 from langchain_core.messages import HumanMessage
 
 from invoicer.extraction import InvoiceExtraction, extraction_to_invoice
 from invoicer.models import Invoice, InvoiceDocument
+
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 EXTRACTION_PROMPT = (
     "Jestes asystentem ksiegowym. Wyciagnij dane z zalaczonej faktury i wypelnij "
@@ -48,7 +51,7 @@ class ClaudeVisionExtractor:
     jako ChatAnthropic(model). Realne wywolanie API pokrywa test live-gated.
     """
 
-    def __init__(self, *, model: str = "claude-sonnet-4-6", llm=None) -> None:
+    def __init__(self, *, model: str = _DEFAULT_MODEL, llm: Any = None) -> None:
         self._model = model
         self._llm = llm
 
