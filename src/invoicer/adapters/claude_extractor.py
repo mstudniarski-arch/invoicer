@@ -4,7 +4,8 @@ import base64
 
 from langchain_core.messages import HumanMessage
 
-from invoicer.models import InvoiceDocument
+from invoicer.extraction import InvoiceExtraction, extraction_to_invoice
+from invoicer.models import Invoice, InvoiceDocument
 
 EXTRACTION_PROMPT = (
     "Jestes asystentem ksiegowym. Wyciagnij dane z zalaczonej faktury i wypelnij "
@@ -38,3 +39,28 @@ def build_extraction_message(document: InvoiceDocument) -> HumanMessage:
             {"type": block_type, "base64": data, "mime_type": mime},
         ]
     )
+
+
+class ClaudeVisionExtractor:
+    """InvoiceExtractor oparty o Claude (vision) + structured output.
+
+    LLM jest wstrzykiwalny (testy/CI uzywaja fake-llm); domyslnie tworzony leniwie
+    jako ChatAnthropic(model). Realne wywolanie API pokrywa test live-gated.
+    """
+
+    def __init__(self, *, model: str = "claude-sonnet-4-6", llm=None) -> None:
+        self._model = model
+        self._llm = llm
+
+    def _client(self):
+        if self._llm is None:
+            from langchain_anthropic import ChatAnthropic
+
+            self._llm = ChatAnthropic(model=self._model)
+        return self._llm
+
+    def extract(self, document: InvoiceDocument) -> Invoice:
+        message = build_extraction_message(document)
+        structured = self._client().with_structured_output(InvoiceExtraction)
+        extraction = structured.invoke([message])
+        return extraction_to_invoice(extraction)
