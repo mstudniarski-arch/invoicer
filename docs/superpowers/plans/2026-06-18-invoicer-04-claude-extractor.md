@@ -303,7 +303,9 @@ def _mime_and_block(filename: str) -> tuple[str, str]:
         return "image/png", "image"
     if lower.endswith((".jpg", ".jpeg")):
         return "image/jpeg", "image"
-    return "application/pdf", "file"
+    raise ValueError(
+        f"Nieobslugiwany typ pliku do ekstrakcji: {filename!r} (obslugiwane: pdf, png, jpg)"
+    )
 
 
 def build_extraction_message(document: InvoiceDocument) -> HumanMessage:
@@ -521,3 +523,12 @@ cd /Users/mski/Developer/Invoicer && git add -A && git commit -m "chore: ruff cl
 **Type consistency:** `InvoiceExtraction`/`PartyExtraction`/`LineItemExtraction` (pola kwot jako `str`, `confidence: float` z `ge=0,le=1`); `extraction_to_invoice(ex) -> Invoice` (Decimal via `Decimal(str)`); `build_extraction_message(document) -> HumanMessage` (bloki `text` + `file|image`); `ClaudeVisionExtractor(*, model="claude-sonnet-4-6", llm=None)` z `extract(document) -> Invoice`, zgodny z portem `InvoiceExtractor`. Fake-llm w testach odwzorowuje `with_structured_output(schema).invoke([msg])` — ta sama powierzchnia co `ChatAnthropic`.
 
 **Uwaga wykonawcza:** `extract()` jest w pełni testowalne w CI dzięki wstrzykniętemu fake-llm (zwraca z góry ustalone `InvoiceExtraction`); jedyny realny kontakt z API to skip-owany test live. Kwoty jako `str` w DTO (nie `float`) chronią przed artefaktami zmiennoprzecinkowymi przy pieniądzach.
+
+---
+
+## Zmiany z review (zsynchronizowane z kodem)
+
+- **T1:** `PartyExtraction` dostała pole `address` (mapowane do domeny); mapper owinął parsowanie w `_amount(field, raw)` / `_iso_date(field, raw)` — zepsute wyjście LLM rzuca `ValueError` z nazwą pola (debuggability messy-output); `net/vat/gross` dostały opisy `Field`. +2 testy negatywne.
+- **T2:** `_mime_and_block` na nieznane rozszerzenie **rzuca** (fail-fast, spójnie z repo) zamiast cicho udawać PDF. +3 testy (`.PDF`, `.jpeg`, raise).
+- **T3:** stała `_DEFAULT_MODEL`, adnotacja `llm: Any`, test regresyjny lazy-init (`ClaudeVisionExtractor()` bez klucza nie rzuca).
+- **Zależności:** `langchain-core` dodane jako jawna zależność (importujemy z niej `HumanMessage` bezpośrednio).

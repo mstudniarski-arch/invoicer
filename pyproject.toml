@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Agentowy asystent ksiegowy — pobiera, waliduje i klasyfikuje faktury (PL tax), z bramka human-in-the-loop."
 requires-python = ">=3.12"
 dependencies = [
+    "langchain-anthropic>=1.4.6",
+    "langchain-core>=1.4.7",
     "langgraph>=1.2.5",
     "pydantic>=2.7",
 ]
