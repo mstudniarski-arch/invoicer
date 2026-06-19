@@ -99,7 +99,7 @@ class Classification(BaseModel):
 
     treatment: TaxTreatment
     country_bucket: CountryBucket
-    confidence: float = 1.0
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     rationale_pl: str = ""
     human_must_confirm: list[str] = Field(default_factory=list)
     currency_note: str = ""
