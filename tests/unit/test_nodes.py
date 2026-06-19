@@ -5,11 +5,14 @@ import pytest
 
 from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
+from invoicer.adapters.stub_reasoner import IdentityReasoner, StubExceptionReasoner
 from invoicer.graph.nodes import (
     classify_node,
     make_book_node,
     make_extract_node,
+    make_reason_exception_node,
     make_validate_node,
+    route_after_classify,
     route_after_review,
 )
 from invoicer.ledger import Ledger, LedgerEntry
@@ -183,3 +186,40 @@ def test_book_node_blocks_double_booking(tmp_path):
     classification = Classification(treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL)
     with pytest.raises(RuntimeError):
         node({"invoice": inv, "classification": classification})
+
+
+def test_route_after_classify_pl_goes_to_human_review():
+    c = Classification(treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL)
+    assert route_after_classify({"classification": c}) == "human_review"
+
+
+def test_route_after_classify_foreign_goes_to_reason_exception():
+    c = Classification(treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.POZA_UE)
+    assert route_after_classify({"classification": c}) == "reason_exception"
+    c_ue = Classification(treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.UE)
+    assert route_after_classify({"classification": c_ue}) == "reason_exception"
+
+
+def test_reason_exception_node_enriches_classification():
+    base = Classification(
+        treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.POZA_UE, confidence=0.6
+    )
+    enriched = Classification(
+        treatment=TaxTreatment.IMPORT_TOWAROW,
+        country_bucket=CountryBucket.POZA_UE,
+        confidence=0.9,
+        rationale_pl="to towar",
+    )
+    node = make_reason_exception_node(StubExceptionReasoner(enriched))
+    update = node({"invoice": _foreign_invoice(), "classification": base})
+    assert update["classification"].treatment == TaxTreatment.IMPORT_TOWAROW
+    assert update["classification"].confidence == 0.9
+
+
+def test_reason_exception_node_identity_keeps_base():
+    base = Classification(
+        treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.POZA_UE, confidence=0.6
+    )
+    node = make_reason_exception_node(IdentityReasoner())
+    update = node({"invoice": _foreign_invoice(), "classification": base})
+    assert update["classification"] == base
