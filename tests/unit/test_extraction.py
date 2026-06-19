@@ -1,6 +1,9 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+from pydantic import ValidationError
+
 from invoicer.extraction import (
     InvoiceExtraction,
     LineItemExtraction,
@@ -56,9 +59,6 @@ def test_mapper_handles_optional_dates():
 
 
 def test_confidence_is_bounded_0_1():
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         InvoiceExtraction(
             seller=PartyExtraction(name="A"),
@@ -71,3 +71,17 @@ def test_confidence_is_bounded_0_1():
             total_gross="0",
             confidence=1.5,
         )
+
+
+def test_malformed_amount_raises_with_field_context():
+    ex = _extraction()
+    ex.total_net = "N/A"
+    with pytest.raises(ValueError, match="total_net"):
+        extraction_to_invoice(ex)
+
+
+def test_malformed_date_raises_with_field_context():
+    ex = _extraction()
+    ex.issue_date = "01/06/2026"
+    with pytest.raises(ValueError, match="issue_date"):
+        extraction_to_invoice(ex)
