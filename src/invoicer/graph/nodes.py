@@ -8,7 +8,7 @@ from langgraph.types import interrupt
 from invoicer.booking import invoice_to_booking_payload
 from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import Classification, CountryBucket, TaxTreatment
-from invoicer.ports import AccountingSink, InvoiceExtractor
+from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor
 from invoicer.state import InvoiceState
 from invoicer.validation import validate_invoice
 
@@ -169,3 +169,20 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
         return {"booking": result}
 
     return book
+
+
+def make_reason_exception_node(reasoner: ExceptionReasoner):
+    """Wezel `reason_exception`: sedzia-LLM wzbogaca klasyfikacje faktury zagranicznej."""
+
+    def reason_exception(state: InvoiceState) -> dict:
+        enriched = reasoner.reason(state["invoice"], state["classification"])
+        return {"classification": enriched}
+
+    return reason_exception
+
+
+def route_after_classify(state: InvoiceState) -> str:
+    """Krawedz warunkowa po classify: PL -> human_review; zagranica -> reason_exception."""
+    if state["classification"].country_bucket == CountryBucket.PL:
+        return "human_review"
+    return "reason_exception"
