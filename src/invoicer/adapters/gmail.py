@@ -10,8 +10,12 @@ GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
 def _build_query(sender: str) -> str:
-    """Zapytanie Gmail: faktury (PDF) od konkretnego nadawcy."""
-    return f'from:"{sender}" has:attachment filename:pdf'
+    """Zapytanie Gmail: faktury (PDF) od konkretnego nadawcy.
+
+    Goly adres -> from:adres (forma kanoniczna); forma z nazwa/spacja -> from:"...".
+    """
+    token = f'"{sender}"' if (" " in sender or "<" in sender) else sender
+    return f"from:{token} has:attachment filename:pdf"
 
 
 def _header(payload: dict, name: str) -> str | None:

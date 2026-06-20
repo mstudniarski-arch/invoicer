@@ -17,7 +17,7 @@ def test_scope_is_readonly():
 
 
 def test_build_query_filters_sender_and_pdf_attachments():
-    assert _build_query("a@b.pl") == 'from:"a@b.pl" has:attachment filename:pdf'
+    assert _build_query("a@b.pl") == "from:a@b.pl has:attachment filename:pdf"
 
 
 def test_header_is_case_insensitive_and_missing_returns_none():
