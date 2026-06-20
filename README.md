@@ -1,5 +1,7 @@
 # Invoicer
 
+[![pipeline status](https://gitlab.com/m.studniarski/invoicer/badges/main/pipeline.svg)](https://gitlab.com/m.studniarski/invoicer/-/commits/main)
+
 > Agentic AI assistant that pulls invoices from a client's mailbox, extracts and validates them under **Polish tax law**, reasons about edge cases (e.g. a UK invoice with no VAT), and books them to accounting software — **only after a human approves**.
 
 Built with **LangGraph** + **Claude** (vision + structured output), in a clean ports-and-adapters architecture, test-driven throughout.
