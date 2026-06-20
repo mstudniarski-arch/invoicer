@@ -69,23 +69,35 @@ class GmailAdapter:
 
     def fetch(self, sender: str) -> list[InvoiceDocument]:
         messages = self._service.users().messages()
-        listing = messages.list(userId=self._user_id, q=_build_query(sender)).execute()
+        query = _build_query(sender)
         docs: list[InvoiceDocument] = []
-        for ref in listing.get("messages", []):
-            msg = messages.get(userId=self._user_id, id=ref["id"], format="full").execute()
-            payload = msg["payload"]
-            from_header = _header(payload, "From") or sender
-            subject = _header(payload, "Subject") or ""
-            received_at = datetime.fromtimestamp(int(msg["internalDate"]) / 1000, tz=UTC)
-            for part in _iter_pdf_parts(payload):
-                content = _attachment_bytes(self._service, self._user_id, ref["id"], part)
-                docs.append(
-                    InvoiceDocument(
-                        sender=from_header,
-                        subject=subject,
-                        received_at=received_at,
-                        filename=part.get("filename", "attachment.pdf"),
-                        content=content,
+        page_token: str | None = None
+        while True:
+            kwargs = {"userId": self._user_id, "q": query}
+            if page_token:
+                kwargs["pageToken"] = page_token
+            listing = messages.list(**kwargs).execute()
+            for ref in listing.get("messages", []):
+                msg = messages.get(userId=self._user_id, id=ref["id"], format="full").execute()
+                payload = msg.get("payload")
+                if payload is None:  # niekompletna/tombstone wiadomosc — pomijamy, nie wywalamy
+                    continue
+                from_header = _header(payload, "From") or sender
+                subject = _header(payload, "Subject") or ""
+                ts = int(msg.get("internalDate", "0")) / 1000
+                received_at = datetime.fromtimestamp(ts, tz=UTC)
+                for part in _iter_pdf_parts(payload):
+                    content = _attachment_bytes(self._service, self._user_id, ref["id"], part)
+                    docs.append(
+                        InvoiceDocument(
+                            sender=from_header,
+                            subject=subject,
+                            received_at=received_at,
+                            filename=part.get("filename", "attachment.pdf"),
+                            content=content,
+                        )
                     )
-                )
+            page_token = listing.get("nextPageToken")
+            if not page_token:
+                break
         return docs

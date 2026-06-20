@@ -172,3 +172,64 @@ def test_fetch_builds_invoice_document_from_pdf_attachment():
 def test_fetch_returns_empty_when_no_messages():
     service = _FakeGmail(list_result={}, get_result=None, attach_data="")
     assert GmailAdapter(service).fetch("nikt@x.pl") == []
+
+
+class _PaginatedMessages:
+    def __init__(self, pages, get_result, attach_data):
+        self._pages = pages  # dict: pageToken (or None) -> list_result
+        self._get_result = get_result
+        self._attach_data = attach_data
+
+    def list(self, *, pageToken=None, **_kwargs):
+        return _Exec(self._pages[pageToken])
+
+    def get(self, **_kwargs):
+        return _Exec(self._get_result)
+
+    def attachments(self):
+        return _Attachments(self._attach_data)
+
+
+class _PaginatedGmail:
+    def __init__(self, pages, get_result, attach_data):
+        self._users = _Users(_PaginatedMessages(pages, get_result, attach_data))
+
+    def users(self):
+        return self._users
+
+
+def test_fetch_follows_pagination_across_pages():
+    pdf = b"%PDF-1.4 strona"
+    b64 = base64.urlsafe_b64encode(pdf).decode().rstrip("=")
+    pages = {
+        None: {"messages": [{"id": "m1"}], "nextPageToken": "p2"},
+        "p2": {"messages": [{"id": "m2"}]},
+    }
+    service = _PaginatedGmail(pages, _message_fixture(), b64)
+    docs = GmailAdapter(service).fetch("x@y.pl")
+    assert len(docs) == 2  # po jednej fakturze z kazdej strony
+
+
+def test_fetch_uses_inline_attachment_data_when_present():
+    pdf = b"%PDF-inline"
+    b64 = base64.urlsafe_b64encode(pdf).decode().rstrip("=")
+    msg = {
+        "id": "m1",
+        "internalDate": "1780272000000",
+        "payload": {
+            "headers": [{"name": "From", "value": "a@b.pl"}],
+            "parts": [{"mimeType": "application/pdf", "filename": "x.pdf", "body": {"data": b64}}],
+        },
+    }
+    service = _FakeGmail(
+        list_result={"messages": [{"id": "m1"}]}, get_result=msg, attach_data="NIEUZYWANE"
+    )
+    docs = GmailAdapter(service).fetch("a@b.pl")
+    assert docs[0].content == pdf  # uzyto body.data, nie attachments()
+
+
+def test_fetch_skips_message_without_payload():
+    service = _FakeGmail(
+        list_result={"messages": [{"id": "m1"}]}, get_result={"id": "m1"}, attach_data=""
+    )
+    assert GmailAdapter(service).fetch("a@b.pl") == []  # brak payload -> pominiete, bez wyjatku
