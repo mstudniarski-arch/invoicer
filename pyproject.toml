@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Agentowy asystent ksiegowy — pobiera, waliduje i klasyfikuje faktury (PL tax), z bramka human-in-the-loop."
 requires-python = ">=3.12"
 dependencies = [
+    "google-api-python-client>=2.197.0",
+    "google-auth>=2.55.0",
+    "google-auth-oauthlib>=1.4.0",
     "langchain-anthropic>=1.4.6",
     "langchain-core>=1.4.7",
     "langgraph>=1.2.5",
