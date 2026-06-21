@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from langgraph.types import Command
-
 from invoicer.models import InvoiceDocument
+from invoicer.runner import resume_document, start_document
 from invoicer.state import InvoiceState
 
 
@@ -15,15 +14,11 @@ def process_document(
     thread_id: str,
     decide: Callable[[dict], str],
 ) -> InvoiceState:
-    """Przeprowadza jeden dokument przez graf z bramka czlowieka.
+    """Przeprowadza jeden dokument przez graf z bramka czlowieka (CLI/sync).
 
     `decide(payload) -> "approve" | "reject"` dostaje podsumowanie z human_review.
-    Domyslna implementacja CLI (Rich) wstrzykiwana jest przez wolajacego.
     """
-    config = {"configurable": {"thread_id": thread_id}}
-    result = graph.invoke({"document": document, "errors": []}, config)
-    interrupts = result.get("__interrupt__")
-    if interrupts:
-        payload = interrupts[0].value
-        result = graph.invoke(Command(resume=decide(payload)), config)
-    return result
+    payload = start_document(graph, document, thread_id=thread_id)
+    if payload is None:  # graf nie zatrzymal sie (brak interrupt) — zwroc biezacy stan
+        return graph.get_state({"configurable": {"thread_id": thread_id}}).values
+    return resume_document(graph, thread_id=thread_id, decision=decide(payload))
