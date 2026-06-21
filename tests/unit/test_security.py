@@ -22,3 +22,48 @@ def test_passthrough_for_clean_text():
 def test_redacts_multiple_pii_types():
     result = redact_pii("NIP 5260001246 kontakt ksiegowa@klient.pl")
     assert result == "NIP [NIP] kontakt [EMAIL]"
+
+
+def test_redacts_pl_iban_grouped():
+    out = redact_pii("przelew PL61 1090 1014 0000 0712 1981 2874 dzis")
+    assert "[KONTO]" in out
+    assert "1090" not in out
+
+
+def test_redacts_account_grouped_without_prefix():
+    out = redact_pii("konto 61 1090 1014 0000 0712 1981 2874")
+    assert "[KONTO]" in out
+    assert "1090" not in out
+
+
+def test_redacts_pl_iban_compact():
+    out = redact_pii("IBAN PL61109010140000071219812874 koniec")
+    assert "[KONTO]" in out
+    assert "6110901014" not in out
+
+
+def test_redacts_nip_with_separators():
+    assert redact_pii("NIP 526-000-12-46") == "NIP [NIP]"
+
+
+def test_does_not_redact_iso_date_or_time():
+    s = "2026-06-01 10:00:00 faktura VAT 23%"
+    assert redact_pii(s) == s
+
+
+def test_redact_pii_is_idempotent():
+    s = "NIP 5260001246, konto 61109010140000071219812874, mail a@b.pl"
+    once = redact_pii(s)
+    assert redact_pii(once) == once
+
+
+def test_redacts_pl_prefixed_vat_id():
+    # unijny VAT ID PL = "PL" + 10-cyfrowy NIP (pole vat_id na fakturze)
+    assert redact_pii("VAT PL5260001246 sprzedawcy") == "VAT [NIP] sprzedawcy"
+
+
+def test_pl_prefixed_iban_still_konto_not_nip():
+    # PL + 26 cyfr to nadal IBAN -> [KONTO], nie [NIP] (brak konfliktu z PL+10)
+    out = redact_pii("IBAN PL61109010140000071219812874 koniec")
+    assert "[KONTO]" in out
+    assert "[NIP]" not in out
