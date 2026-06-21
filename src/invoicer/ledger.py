@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -12,10 +13,27 @@ class LedgerEntry(BaseModel):
     booking_id: str
     booked_at: str  # ISO-8601, ustawiane przez wolajacego (determinizm)
     seller_nip: str | None = None
+    prev_hash: str = ""  # entry_hash poprzedniego wpisu (lancuch audytu)
+    entry_hash: str = ""  # SHA-256 tresci tego wpisu (z prev_hash)
 
 
 def _dedup_key(number: str, seller_nip: str | None, seller_name: str) -> tuple[str, str]:
     return (number, seller_nip or seller_name)
+
+
+def _entry_hash(entry: LedgerEntry) -> str:
+    content = "|".join(
+        [
+            entry.number,
+            entry.seller_nip or "",
+            entry.seller_name,
+            entry.total_gross,
+            entry.booking_id,
+            entry.booked_at,
+            entry.prev_hash,
+        ]
+    )
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 class Ledger:
@@ -29,8 +47,12 @@ class Ledger:
 
     def append(self, entry: LedgerEntry) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        existing = self.entries()
+        prev_hash = existing[-1].entry_hash if existing else ""
+        stamped = entry.model_copy(update={"prev_hash": prev_hash})
+        stamped = stamped.model_copy(update={"entry_hash": _entry_hash(stamped)})
         with self.path.open("a", encoding="utf-8") as f:
-            f.write(entry.model_dump_json() + "\n")
+            f.write(stamped.model_dump_json() + "\n")
 
     def entries(self) -> list[LedgerEntry]:
         if not self.path.exists():
@@ -44,3 +66,12 @@ class Ledger:
     def is_duplicate(self, number: str, seller_nip: str | None, seller_name: str) -> bool:
         key = _dedup_key(number, seller_nip, seller_name)
         return any(_dedup_key(e.number, e.seller_nip, e.seller_name) == key for e in self.entries())
+
+    def verify_chain(self) -> bool:
+        """Sprawdza integralnosc lancucha (wykrywa manipulacje pliku)."""
+        prev = ""
+        for entry in self.entries():
+            if entry.prev_hash != prev or entry.entry_hash != _entry_hash(entry):
+                return False
+            prev = entry.entry_hash
+        return True
