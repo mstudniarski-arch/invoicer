@@ -9,6 +9,7 @@ _IBAN_PL = re.compile(r"\b[Pp][Ll]\d{26}\b")  # IBAN PL zwarty (z prefiksem PL)
 _ACCOUNT = re.compile(r"\b\d{26}\b")  # NRB zwarty (26 cyfr)
 
 # NIP:
+_NIP_PL = re.compile(r"\b[Pp][Ll]\d{10}\b")  # VAT ID PL = PL + 10-cyfrowy NIP
 # NIP z myslnikami (format NNN-NNN-NN-NN lub NNN-NN-NN-NNN):
 _NIP_SEP = re.compile(r"\b\d{3}-\d{3}-\d{2}-\d{2}\b|\b\d{3}-\d{2}-\d{2}-\d{3}\b")
 _NIP = re.compile(r"\b\d{10}\b")  # NIP zwarty (10 cyfr)
@@ -28,6 +29,7 @@ def redact_pii(text: str) -> str:
     text = _IBAN_GROUPED.sub("[KONTO]", text)
     text = _IBAN_PL.sub("[KONTO]", text)
     text = _ACCOUNT.sub("[KONTO]", text)
+    text = _NIP_PL.sub("[NIP]", text)
     text = _NIP_SEP.sub("[NIP]", text)
     text = _NIP.sub("[NIP]", text)
     return _EMAIL.sub("[EMAIL]", text)

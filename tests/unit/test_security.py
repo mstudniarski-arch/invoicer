@@ -55,3 +55,15 @@ def test_redact_pii_is_idempotent():
     s = "NIP 5260001246, konto 61109010140000071219812874, mail a@b.pl"
     once = redact_pii(s)
     assert redact_pii(once) == once
+
+
+def test_redacts_pl_prefixed_vat_id():
+    # unijny VAT ID PL = "PL" + 10-cyfrowy NIP (pole vat_id na fakturze)
+    assert redact_pii("VAT PL5260001246 sprzedawcy") == "VAT [NIP] sprzedawcy"
+
+
+def test_pl_prefixed_iban_still_konto_not_nip():
+    # PL + 26 cyfr to nadal IBAN -> [KONTO], nie [NIP] (brak konfliktu z PL+10)
+    out = redact_pii("IBAN PL61109010140000071219812874 koniec")
+    assert "[KONTO]" in out
+    assert "[NIP]" not in out
