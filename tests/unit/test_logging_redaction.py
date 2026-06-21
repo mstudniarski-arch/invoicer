@@ -111,3 +111,37 @@ def test_mock_subiekt_log_is_redacted_after_install():
     finally:
         parent.removeHandler(handler)
         parent.propagate = old_propagate
+
+
+def test_filter_does_not_raise_on_bad_format_args():
+    f = RedactingFilter()
+    # zly log: format oczekuje 2 argumentow, podano 1 -> getMessage() rzuca TypeError
+    record = logging.LogRecord(
+        name="invoicer.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="a=%s b=%s",
+        args=("tylko_jeden",),
+        exc_info=None,
+    )
+    # filtr NIE moze rzucic (logowanie nie moze wywalic aplikacji)
+    assert f.filter(record) is True
+
+
+def test_multiple_redacting_filters_on_same_record_are_safe():
+    f = RedactingFilter()
+    record = logging.LogRecord(
+        name="invoicer.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="nip=%s",
+        args=("5260001246",),
+        exc_info=None,
+    )
+    f.filter(record)
+    first = record.getMessage()
+    f.filter(record)  # symuluje filtr drugiego handlera na tym samym rekordzie
+    assert record.getMessage() == first  # idempotentne, brak podwojnego manglowania
+    assert "[NIP]" in first

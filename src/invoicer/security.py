@@ -44,8 +44,11 @@ class RedactingFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_pii(record.getMessage())
-        record.args = ()
+        try:
+            record.msg = redact_pii(record.getMessage())
+            record.args = ()
+        except Exception:  # logowanie nie moze wywalic aplikacji
+            pass  # zly format/args -> zostaw rekord; handler obsluzy przez handleError
         return True
 
 
