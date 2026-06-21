@@ -6,7 +6,7 @@ from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.graph.build import build_invoice_graph
 from invoicer.ledger import Ledger
 from invoicer.models import Invoice, InvoiceDocument, LineItem, Party
-from invoicer.runner import resume_document, start_document
+from invoicer.runner import build_demo_graph, document_from_upload, resume_document, start_document
 
 
 def _invoice() -> Invoice:
@@ -66,3 +66,15 @@ def test_resume_document_reject_does_not_book(tmp_path):
     start_document(graph, _doc(), thread_id="t3")
     final = resume_document(graph, thread_id="t3", decision="reject")
     assert final.get("booking") is None
+
+
+def test_document_from_upload_wraps_bytes():
+    doc = document_from_upload("faktura.pdf", b"%PDF-1.4 x")
+    assert doc.filename == "faktura.pdf"
+    assert doc.content == b"%PDF-1.4 x"
+    assert doc.sender  # niepuste (domyslny nadawca demo)
+
+
+def test_build_demo_graph_returns_runnable_graph(tmp_path):
+    graph = build_demo_graph(ledger_path=tmp_path / "demo.jsonl")
+    assert hasattr(graph, "invoke")  # skompilowany graf LangGraph
