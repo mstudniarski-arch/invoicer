@@ -71,9 +71,10 @@ def test_adversarial_content_never_auto_books(tmp_path):
     graph = _graph(inv, tmp_path)
     config = {"configurable": {"thread_id": "adv"}}
     payload = start_document(graph, _doc(), thread_id="adv")
-    assert payload is not None  # graf ZATRZYMAL sie na human_review
-    state = graph.get_state(config).values
-    assert state.get("booking") is None  # NIC nie zaksiegowano bez akceptacji czlowieka
+    assert payload is not None  # injection NIE obeszla bramki — graf czeka na czlowieka
+    # ksiegowanie nastepuje WYLACZNIE po jawnej akceptacji czlowieka; injection nie zmienia wyniku
+    final = graph.invoke(Command(resume="approve"), config)
+    assert final["booking"].booking_id == "MOCK-FV/1"
 
 
 def test_reject_blocks_booking(tmp_path):
