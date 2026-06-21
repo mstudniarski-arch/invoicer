@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 
 # Konto / IBAN — od najdluzszych/najbardziej specyficznych (kolejnosc ma znaczenie):
@@ -30,3 +31,34 @@ def redact_pii(text: str) -> str:
     text = _NIP_SEP.sub("[NIP]", text)
     text = _NIP.sub("[NIP]", text)
     return _EMAIL.sub("[EMAIL]", text)
+
+
+class RedactingFilter(logging.Filter):
+    """Filtr logowania, ktory maskuje PII w finalnej tresci rekordu.
+
+    Operuje na `record.getMessage()` (renderuje %s-argumenty PRZED redakcja), wiec lapie
+    PII przekazane przez `record.args` (tak loguje MockSubiektSink). Po redakcji czysci
+    `args`, by handlery nie re-renderowaly surowych wartosci. Zawsze przepuszcza rekord
+    (filtr transformujacy, nie odrzucajacy). Bezpieczny przy wielu handlerach dzieki
+    idempotencji `redact_pii`.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = redact_pii(record.getMessage())
+        record.args = ()
+        return True
+
+
+def install_redaction(logger: logging.Logger | None = None) -> None:
+    """Podpina RedactingFilter do handlerow loggera (domyslnie root) — idempotentnie.
+
+    Redaguje WSZYSTKIE rekordy docierajace do handlera (rowniez child-loggery `invoicer.*`
+    oraz przyszly SubiektSferaSink i logi third-party — over-masking jest bezpieczny).
+    Jesli cel nie ma handlera, dodaje StreamHandler. Wolaj PO konfiguracji logowania aplikacji.
+    """
+    target = logger if logger is not None else logging.getLogger()
+    if not target.handlers:
+        target.addHandler(logging.StreamHandler())
+    for handler in target.handlers:
+        if not any(isinstance(flt, RedactingFilter) for flt in handler.filters):
+            handler.addFilter(RedactingFilter())
