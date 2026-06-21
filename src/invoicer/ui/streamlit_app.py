@@ -21,7 +21,7 @@ st.caption(
 )
 
 if "graph" not in st.session_state:
-    ledger_path = Path(tempfile.gettempdir()) / "invoicer_demo_ledger.jsonl"
+    ledger_path = Path(tempfile.mkdtemp(prefix="invoicer_demo_")) / "ledger.jsonl"
     st.session_state.graph = build_demo_graph(ledger_path=ledger_path)
     st.session_state.payload = None
     st.session_state.result = None
