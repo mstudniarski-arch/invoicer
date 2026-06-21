@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -22,16 +23,18 @@ def _dedup_key(number: str, seller_nip: str | None, seller_name: str) -> tuple[s
 
 
 def _entry_hash(entry: LedgerEntry) -> str:
-    content = "|".join(
+    content = json.dumps(
         [
             entry.number,
-            entry.seller_nip or "",
+            entry.seller_nip,
             entry.seller_name,
             entry.total_gross,
             entry.booking_id,
             entry.booked_at,
             entry.prev_hash,
-        ]
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
