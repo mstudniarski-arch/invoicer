@@ -12,6 +12,9 @@ from invoicer.runner import (
     resume_document,
     start_document,
 )
+from invoicer.security import install_redaction
+
+install_redaction()  # scrubuje PII ze wszystkich logow invoicera (idempotentne)
 
 st.set_page_config(page_title="Invoicer — demo", page_icon="🧾")
 st.title("🧾 Invoicer — agentic invoice intake")
