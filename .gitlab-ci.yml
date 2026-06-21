@@ -9,3 +9,11 @@ test:
     - uv run ruff check .
     - uv run ruff format --check .
     - uv run pytest -q
+
+audit:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  allow_failure: true
+  script:
+    - uv sync --frozen
+    - uv run pip-audit

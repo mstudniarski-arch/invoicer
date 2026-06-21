@@ -27,3 +27,7 @@ jobs:
 
       - name: Tests
         run: uv run pytest -q
+
+      - name: Supply-chain audit (pip-audit)
+        run: uv run pip-audit
+        continue-on-error: true
