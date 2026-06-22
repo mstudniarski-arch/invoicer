@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel
@@ -19,6 +20,7 @@ class BookingPayload(BaseModel):
     total_vat: Decimal
     total_gross: Decimal
     treatment: str | None = None  # traktowanie podatkowe — uzupelnia klasyfikacja (Plan 04)
+    issue_date: date | None = None  # data wystawienia faktury (dla realnego sinka)
 
 
 class BookingResult(BaseModel):
@@ -43,4 +45,5 @@ def invoice_to_booking_payload(invoice: Invoice, treatment: str | None = None) -
         total_vat=invoice.total_vat,
         total_gross=invoice.total_gross,
         treatment=treatment,
+        issue_date=invoice.issue_date,
     )

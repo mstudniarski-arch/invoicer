@@ -55,3 +55,8 @@ def test_payload_is_independent_snapshot():
     payload.lines[0].gross = Decimal("9999.99")
     assert invoice.seller.name == "ACME"
     assert invoice.lines[0].gross == Decimal("1230.00")
+
+
+def test_mapper_carries_issue_date():
+    payload = invoice_to_booking_payload(_invoice())
+    assert payload.issue_date == date(2026, 6, 1)
