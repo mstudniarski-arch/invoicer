@@ -48,7 +48,7 @@ Ports-and-adapters around a LangGraph state machine — the core depends only on
 | `EmailSource` | `FixtureSource` (local PDFs) | `GmailAdapter` *(planned)* |
 | `InvoiceExtractor` | `StubExtractor` | **`ClaudeVisionExtractor`** ✅ |
 | `ExceptionReasoner` | `IdentityReasoner` / `StubExceptionReasoner` | **`ClaudeExceptionReasoner`** ✅ |
-| `AccountingSink` | `MockSubiektSink` | `SubiektSferaSink` *(Windows/COM, planned)* |
+| `AccountingSink` | `MockSubiektSink` (offline/demo) | **`FakturowniaSink`** ✅ (REST, faktura kosztowa) |
 | `HumanReview` | CLI (`process_document`) | Streamlit *(planned)* |
 
 Swapping the stub extractor for real Claude vision is a one-line change — the graph, state, and nodes are untouched:
