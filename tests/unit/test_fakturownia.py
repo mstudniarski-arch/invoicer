@@ -113,3 +113,37 @@ def test_reverse_charge_set_for_import_uslug_not_for_krajowa():
 def test_conforms_to_accounting_sink_protocol():
     sink, _ = _sink(_FakeResponse(201, {"id": 1}))
     assert isinstance(sink, AccountingSink)
+
+
+def test_post_raises_when_response_has_no_number_or_id():
+    sink, _ = _sink(_FakeResponse(200, {"unexpected": "shape"}))
+    with pytest.raises(FakturowniaError):
+        sink.post(_payload())
+
+
+def test_seller_tax_no_falls_back_to_vat_id_for_foreign_supplier():
+    sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
+    payload = _payload()
+    payload.seller = Party(name="Foreign Ltd", country="DE", vat_id="DE123456789")  # nip=None
+    sink.post(payload)
+    assert client.calls[0][1]["invoice"]["seller_tax_no"] == "DE123456789"
+
+
+def test_positions_maps_all_lines():
+    sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
+    payload = _payload()
+    payload.lines.append(
+        LineItem(
+            description="Druga",
+            quantity=Decimal("3"),
+            unit_net=Decimal("50.00"),
+            vat_rate=Decimal("0.08"),
+            net=Decimal("150.00"),
+            vat=Decimal("12.00"),
+            gross=Decimal("162.00"),
+        )
+    )
+    sink.post(payload)
+    positions = client.calls[0][1]["invoice"]["positions"]
+    assert len(positions) == 2
+    assert positions[1] == {"name": "Druga", "quantity": "3", "price_net": "50.00", "tax": 8}

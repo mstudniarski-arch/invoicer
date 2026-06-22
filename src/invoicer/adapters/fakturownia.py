@@ -7,7 +7,10 @@ from datetime import UTC, datetime
 from invoicer.booking import BookingPayload, BookingResult
 from invoicer.security import redact_pii
 
-_REVERSE_CHARGE_TREATMENTS = {"import_uslug", "wnt"}
+# import_uslug (art. 28b) — odwrotne obciazenie (art. 17), flaga reverse_charge wlasciwa.
+# WNT (art. 9/100) ma osobne traktowanie w rejestrze Fakturowni — NIE ta flaga; do potwierdzenia
+# live przed ewentualnym dodaniem. Konserwatywnie poza zbiorem.
+_REVERSE_CHARGE_TREATMENTS = {"import_uslug"}
 
 
 class FakturowniaError(RuntimeError):
@@ -78,11 +81,16 @@ class FakturowniaSink:
         url = f"https://{self._domain}.fakturownia.pl/invoices.json"
         resp = self._client.post(url, json=body)
         if not 200 <= resp.status_code < 300:
-            snippet = redact_pii(str(resp.text)[:500])
+            # redaguj PRZED obcieciem — brak fragmentow PII przy granicy 500 znakow
+            snippet = redact_pii(str(resp.text))[:500]
             raise FakturowniaError(f"Fakturownia POST {url} -> {resp.status_code}: {snippet}")
         data = resp.json()
-        booking_id = str(data.get("number") or data["id"])
-        return BookingResult(booking_id=booking_id, sink=self.sink_name)
+        booking_id = data.get("number") or data.get("id")
+        if not booking_id:
+            raise FakturowniaError(
+                f"Fakturownia zwrocilo 2xx bez number/id w odpowiedzi: {list(data.keys())}"
+            )
+        return BookingResult(booking_id=str(booking_id), sink=self.sink_name)
 
 
 def build_fakturownia_sink() -> FakturowniaSink:
