@@ -137,3 +137,8 @@ def test_persistent_checkpointer_resumes_across_graph_instances(tmp_path):
     start_document(_make_graph(), _doc(), thread_id="p1")  # pauza, stan w SQLite
     final = resume_document(_make_graph(), thread_id="p1", decision="approve")  # nowa instancja
     assert final["booking"].booking_id == "MOCK-FV/1"
+
+
+def test_human_review_payload_includes_seller_nip(tmp_path):
+    payload = start_document(_graph(tmp_path), _doc(), thread_id="nip1")
+    assert payload["seller_nip"] == "5260001246"
