@@ -21,6 +21,13 @@ class AccountingSink(Protocol):
 
 
 @runtime_checkable
+class ApprovalChannel(Protocol):
+    """Kanal akceptacji: wysyla do czlowieka request zatwierdzenia faktury."""
+
+    def request_approval(self, payload: dict) -> None: ...
+
+
+@runtime_checkable
 class InvoiceDetector(Protocol):
     """Klasyfikator: czy dokument to faktura (przed wejsciem w pipeline)."""
 
