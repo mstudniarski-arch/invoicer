@@ -8,7 +8,7 @@
 
 ## 1. Problem / kontekst
 
-Pipeline woła Claude w trzech miejscach (`ClaudeInvoiceExtractor`, `ClaudeInvoiceDetector`, `ClaudeExceptionReasoner`) — wszystkie przez `langchain_anthropic.ChatAnthropic(...).with_structured_output(Schema).invoke(...)`. Dziś nie ma żadnej widoczności kosztu ani czasu tych wywołań: nie wiadomo, ile tokenów zjada faktura, ile to kosztuje, ani które wywołanie jest wolne. Dla projektu portfolio (i dla realnego użycia) to brakujący element obserwowalności.
+Pipeline woła Claude w trzech miejscach (`ClaudeVisionExtractor`, `ClaudeInvoiceDetector`, `ClaudeExceptionReasoner`) — wszystkie przez `langchain_anthropic.ChatAnthropic(...).with_structured_output(Schema).invoke(...)`. Dziś nie ma żadnej widoczności kosztu ani czasu tych wywołań: nie wiadomo, ile tokenów zjada faktura, ile to kosztuje, ani które wywołanie jest wolne. Dla projektu portfolio (i dla realnego użycia) to brakujący element obserwowalności.
 
 **Zweryfikowane empirycznie** (`/tmp/verify_metrics.py`): `BaseCallbackHandler` przekazany do `ChatAnthropic(callbacks=[...])` **dostaje `usage_metadata`** (input/output tokens) w `on_llm_end` — także na ścieżce `with_structured_output`, mimo że obiekt zwracany z `.invoke()` (Pydantic) nie niesie usage. To jest mechanizm, na którym opieramy metryki.
 
@@ -143,7 +143,7 @@ def _client(self):
 ```
 metrics = LlmMetrics()
 cb = LlmMetricsCallback(metrics, model="claude-sonnet-4-6")
-extractor = ClaudeInvoiceExtractor(callbacks=[cb])
+extractor = ClaudeVisionExtractor(callbacks=[cb])
     → _client() → ChatAnthropic(model=..., callbacks=[cb])
     → .with_structured_output(Invoice).invoke([msg])
         on_chat_model_start(run_id)          # start zegara
@@ -161,7 +161,7 @@ log "invoicer.metrics": llm_call model=claude-sonnet-4-6 input_tokens=654 output
 - `LlmMetricsCallback` na syntetycznych zdarzeniach: `on_chat_model_start(run_id=X)` (deterministyczny `clock`) → `on_llm_end(LLMResult z message.usage_metadata input=654, output=35)` → `metrics.calls` ma 1 `LlmCall` (input=654, output=35, cost_usd>0, latency_ms zgodny z zegarem); `totals()` agreguje (np. 2 wywołania → sumy).
 - `usage_metadata is None` → `LlmCall` z tokenami 0, koszt 0, latencja zapisana (brak wyjątku).
 - Log bez PII: `caplog` na `invoicer.metrics` → linia zawiera `model=`, `input_tokens=`, `cost_usd=`, `latency_ms=`; brak jakiegokolwiek PII (nie ma czego — asercja na zawartość pól).
-- Adapter przekazuje `callbacks`: `ClaudeInvoiceExtractor(callbacks=[cb])` z zamockowanym `ChatAnthropic` → `_client()` woła `ChatAnthropic(model=..., callbacks=[cb])` (patch konstruktora). Istniejące testy fake-llm dalej zielone.
+- Adapter przekazuje `callbacks`: `ClaudeVisionExtractor(callbacks=[cb])` z zamockowanym `ChatAnthropic` → `_client()` woła `ChatAnthropic(model=..., callbacks=[cb])` (patch konstruktora). Istniejące testy fake-llm dalej zielone.
 - **Live-gated** (`ANTHROPIC_API_KEY`): realny `ClaudeInvoiceDetector(callbacks=[cb])` (lub extractor) na małym dokumencie → po `invoke` `metrics.calls` niepuste, `input_tokens>0`, `output_tokens>0`, `cost_usd>0`, `latency_ms>0`. Skip bez klucza.
 
 ---
