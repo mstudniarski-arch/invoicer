@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from invoicer.adapters.mock_subiekt import MockSubiektSink
@@ -90,3 +92,14 @@ def build_demo_graph(*, ledger_path: Path):
     return build_invoice_graph(
         extractor=extractor, reasoner=reasoner, ledger=Ledger(ledger_path), sink=MockSubiektSink()
     )
+
+
+def persistent_checkpointer(db_path: str) -> SqliteSaver:
+    """Trwaly checkpointer LangGraph (SQLite) — graf przezywa proces (async approve).
+
+    check_same_thread=False: webhook (inny watek/proces) wznawia ten sam thread_id.
+    """
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    saver = SqliteSaver(conn)
+    saver.setup()
+    return saver
