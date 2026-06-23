@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Form
 
 from invoicer.runner import resume_document
+from invoicer.security import redact_pii
+
+_logger = logging.getLogger("invoicer.webhook")
 
 _APPROVE = {"tak", "yes", "approve", "1", "t"}
 _REJECT = {"nie", "no", "reject", "2", "n"}
@@ -24,6 +29,9 @@ def create_inbound_app(graph, registry, *, resume=resume_document) -> FastAPI:
     Twilio wola endpoint przy odpowiedzi WhatsApp (form: From, Body). Parsuje TAK/NIE,
     bierze najstarszy pending thread dla numeru (registry) i wznawia graf (resume).
     `resume` wstrzykiwany (CI: fake; domyslnie resume_document).
+
+    Uwaga: walidacja podpisu Twilio (X-Twilio-Signature) celowo pominieta w MVP (spec sek. 7);
+    endpoint wznawia tylko ISTNIEJACE pending dla danego numeru.
     """
     app = FastAPI()
 
@@ -35,7 +43,11 @@ def create_inbound_app(graph, registry, *, resume=resume_document) -> FastAPI:
         thread_id = registry.resolve_oldest(From)
         if thread_id is None:
             return {"status": "no_pending"}
-        resume(graph, thread_id=thread_id, decision=decision)
+        try:
+            resume(graph, thread_id=thread_id, decision=decision)
+        except Exception as exc:  # noqa: BLE001 - webhook musi zwrocic 2xx (brak retry-storm Twilio)
+            _logger.error("resume nieudany dla %s: %s", thread_id, redact_pii(str(exc)))
+            return {"status": "resume_failed", "thread_id": thread_id}
         return {"status": "resumed", "decision": decision, "thread_id": thread_id}
 
     return app
