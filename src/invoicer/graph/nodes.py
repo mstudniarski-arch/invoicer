@@ -125,6 +125,7 @@ def human_review(state: InvoiceState) -> dict:
     payload = {
         "number": invoice.number,
         "seller": invoice.seller.name,
+        "seller_nip": invoice.seller.nip,
         "country": invoice.seller.country,
         "total_gross": str(invoice.total_gross),
         "currency": invoice.currency,

@@ -117,3 +117,28 @@ def test_fetch_invoice_documents_empty_when_none_are_invoices():
     source = _FakeSource([_pdf_doc("cv.pdf")])
     detector = _PredicateDetector(lambda _d: False)
     assert fetch_invoice_documents(source, detector, "a@b.pl") == []
+
+
+def test_persistent_checkpointer_resumes_across_graph_instances(tmp_path):
+    from invoicer.runner import persistent_checkpointer
+
+    db = str(tmp_path / "cp.sqlite")
+    ledger_path = tmp_path / "l.jsonl"
+
+    def _make_graph():
+        return build_invoice_graph(
+            extractor=StubExtractor(_invoice()),
+            ledger=Ledger(ledger_path),
+            sink=MockSubiektSink(),
+            clock=lambda: "2026-06-01T10:00:00",
+            checkpointer=persistent_checkpointer(db),
+        )
+
+    start_document(_make_graph(), _doc(), thread_id="p1")  # pauza, stan w SQLite
+    final = resume_document(_make_graph(), thread_id="p1", decision="approve")  # nowa instancja
+    assert final["booking"].booking_id == "MOCK-FV/1"
+
+
+def test_human_review_payload_includes_seller_nip(tmp_path):
+    payload = start_document(_graph(tmp_path), _doc(), thread_id="nip1")
+    assert payload["seller_nip"] == "5260001246"
