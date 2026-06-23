@@ -3,6 +3,7 @@ import pytest
 from invoicer.adapters.stub_approval import StubApprovalChannel
 from invoicer.ports import ApprovalChannel
 
+# _PAYLOAD: minimalny podzbior kluczy — pelny ksztalt patrz nodes.human_review
 _PAYLOAD = {
     "number": "FV/1",
     "seller": "ACME",
@@ -89,3 +90,11 @@ def test_request_approval_raises_and_redacts_on_error():
 def test_twilio_channel_satisfies_protocol():
     ch, _ = _channel(_FakeResponse(201))
     assert isinstance(ch, ApprovalChannel)
+
+
+def test_format_message_shows_dash_when_seller_nip_none():
+    from invoicer.adapters.twilio_whatsapp import format_approval_message
+
+    msg = format_approval_message({**_PAYLOAD, "seller_nip": None})
+    assert "NIP: —" in msg
+    assert "None" not in msg
