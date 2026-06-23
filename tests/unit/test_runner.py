@@ -78,3 +78,42 @@ def test_document_from_upload_wraps_bytes():
 def test_build_demo_graph_returns_runnable_graph(tmp_path):
     graph = build_demo_graph(ledger_path=tmp_path / "demo.jsonl")
     assert hasattr(graph, "invoke")  # skompilowany graf LangGraph
+
+
+class _FakeSource:
+    def __init__(self, docs):
+        self._docs = docs
+
+    def fetch(self, sender):
+        return self._docs
+
+
+class _PredicateDetector:
+    def __init__(self, predicate):
+        self._predicate = predicate
+
+    def is_invoice(self, document):
+        return self._predicate(document)
+
+
+def _pdf_doc(filename: str) -> InvoiceDocument:
+    return InvoiceDocument(
+        sender="a@b.pl", received_at=datetime(2026, 6, 23), filename=filename, content=b"%PDF"
+    )
+
+
+def test_fetch_invoice_documents_keeps_only_invoices():
+    from invoicer.runner import fetch_invoice_documents
+
+    d1, d2 = _pdf_doc("faktura.pdf"), _pdf_doc("cv.pdf")
+    source = _FakeSource([d1, d2])
+    detector = _PredicateDetector(lambda d: d.filename == "faktura.pdf")
+    assert fetch_invoice_documents(source, detector, "a@b.pl") == [d1]
+
+
+def test_fetch_invoice_documents_empty_when_none_are_invoices():
+    from invoicer.runner import fetch_invoice_documents
+
+    source = _FakeSource([_pdf_doc("cv.pdf")])
+    detector = _PredicateDetector(lambda _d: False)
+    assert fetch_invoice_documents(source, detector, "a@b.pl") == []

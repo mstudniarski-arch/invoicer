@@ -13,6 +13,7 @@ from invoicer.adapters.stub_reasoner import IdentityReasoner
 from invoicer.graph.build import build_invoice_graph
 from invoicer.ledger import Ledger
 from invoicer.models import Invoice, InvoiceDocument, LineItem, Party
+from invoicer.ports import EmailSource, InvoiceDetector
 from invoicer.state import InvoiceState
 
 
@@ -62,6 +63,17 @@ def _demo_invoice() -> Invoice:
         total_gross=Decimal("1230.00"),
         extraction_confidence=0.95,
     )
+
+
+def fetch_invoice_documents(
+    source: EmailSource, detector: InvoiceDetector, sender: str
+) -> list[InvoiceDocument]:
+    """Pobiera dokumenty (EmailSource) i zostawia tylko wykryte jako faktura (InvoiceDetector).
+
+    Pre-filtr ('kontynuuj proces tylko dla faktur'): kazda zwrocona fakture wolajacy
+    karmi przez start_document -> human_review (bez auto-approve).
+    """
+    return [doc for doc in source.fetch(sender) if detector.is_invoice(doc)]
 
 
 def build_demo_graph(*, ledger_path: Path):
