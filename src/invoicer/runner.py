@@ -94,6 +94,20 @@ def build_demo_graph(*, ledger_path: Path):
     )
 
 
+def request_invoice_approval(graph, channel, registry, document, *, thread_id: str, phone: str):
+    """Uruchamia dokument do bramki, rejestruje pending i wysyla request akceptacji.
+
+    Zwraca payload (do akceptacji) lub None gdy graf sie nie zatrzymal (brak interrupt).
+    Odpowiedz czlowieka domyka webhook: registry.resolve_oldest(numer) -> resume_document.
+    """
+    payload = start_document(graph, document, thread_id=thread_id)
+    if payload is None:
+        return None
+    registry.add(thread_id, phone)
+    channel.request_approval(payload)
+    return payload
+
+
 def persistent_checkpointer(db_path: str) -> SqliteSaver:
     """Trwaly checkpointer LangGraph (SQLite) — graf przezywa proces (async approve).
 
