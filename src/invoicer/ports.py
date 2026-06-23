@@ -21,6 +21,13 @@ class AccountingSink(Protocol):
 
 
 @runtime_checkable
+class InvoiceDetector(Protocol):
+    """Klasyfikator: czy dokument to faktura (przed wejsciem w pipeline)."""
+
+    def is_invoice(self, document: InvoiceDocument) -> bool: ...
+
+
+@runtime_checkable
 class InvoiceExtractor(Protocol):
     """Wyciaga ustrukturyzowana Invoice z surowego dokumentu (PDF/skan)."""
 
