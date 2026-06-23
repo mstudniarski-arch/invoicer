@@ -2,20 +2,19 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from invoicer.models import InvoiceDocument
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def _build_query(sender: str) -> str:
-    """Zapytanie Gmail: faktury (PDF) od konkretnego nadawcy.
-
-    Goly adres -> from:adres (forma kanoniczna); forma z nazwa/spacja -> from:"...".
-    """
+def _build_query(sender: str, *, today: date) -> str:
+    """Zapytanie Gmail: faktury (PDF) od nadawcy, z JEDNEGO dnia kalendarzowego (after..before)."""
     token = f'"{sender}"' if (" " in sender or "<" in sender) else sender
-    return f"from:{token} has:attachment filename:pdf"
+    after = today.strftime("%Y/%m/%d")
+    before = (today + timedelta(days=1)).strftime("%Y/%m/%d")
+    return f"from:{token} after:{after} before:{before} has:attachment filename:pdf"
 
 
 def _header(payload: dict, name: str) -> str | None:
@@ -71,9 +70,9 @@ class GmailAdapter:
         self._service = service
         self._user_id = user_id
 
-    def fetch(self, sender: str) -> list[InvoiceDocument]:
+    def fetch(self, sender: str, *, today: date | None = None) -> list[InvoiceDocument]:
         messages = self._service.users().messages()
-        query = _build_query(sender)
+        query = _build_query(sender, today=today or date.today())
         docs: list[InvoiceDocument] = []
         page_token: str | None = None
         while True:
