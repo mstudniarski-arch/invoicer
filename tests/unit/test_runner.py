@@ -142,3 +142,18 @@ def test_persistent_checkpointer_resumes_across_graph_instances(tmp_path):
 def test_human_review_payload_includes_seller_nip(tmp_path):
     payload = start_document(_graph(tmp_path), _doc(), thread_id="nip1")
     assert payload["seller_nip"] == "5260001246"
+
+
+def test_request_invoice_approval_registers_and_sends(tmp_path):
+    from invoicer.adapters.stub_approval import StubApprovalChannel
+    from invoicer.approvals import PendingApprovals
+    from invoicer.runner import request_invoice_approval
+
+    channel = StubApprovalChannel()
+    registry = PendingApprovals(str(tmp_path / "p.sqlite"))
+    payload = request_invoice_approval(
+        _graph(tmp_path), channel, registry, _doc(), thread_id="w1", phone="whatsapp:+48500"
+    )
+    assert payload["number"] == "FV/1"
+    assert channel.sent == [payload]  # request wyslany z payloadem (sprzedawca/NIP/kwota)
+    assert registry.resolve_oldest("whatsapp:+48500") == "w1"  # zarejestrowany pending
