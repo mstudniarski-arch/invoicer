@@ -139,10 +139,18 @@ Twilio Console -> Messaging -> Sandbox -> "When a message comes in":
 https://<twoj-app>.fly.dev/whatsapp/inbound   (POST)
 ```
 
-### 4. Aktualizacje
+### 4. Aktualizacje (CI/CD)
 
-`fly deploy` po kazdej zmianie w `main`. Maszyna restartuje (rolling); stan na `/data` przezywa.
-Auto-deploy z CI/CD = osobny plan (Plan 2).
+Auto-deploy: po zielonym CI na `main` workflow `deploy.yml` robi `flyctl deploy` (rolling restart;
+stan na `/data` przezywa). Jednorazowo dodaj token Fly do sekretow GitHub:
+
+```bash
+fly tokens create deploy -x 999999h   # token deploy
+# GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret:
+#   nazwa: FLY_API_TOKEN   wartosc: <powyzszy token>
+```
+
+Deploy reczny (gdy trzeba): `fly deploy`.
 
 ### Rotacja tokenu Gmail
 
