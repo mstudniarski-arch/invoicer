@@ -45,15 +45,18 @@ class ClaudeExceptionReasoner:
     LLM wstrzykiwalny (CI: fake-llm); ChatAnthropic tworzony leniwie. Realne API -> test live.
     """
 
-    def __init__(self, *, model: str = _DEFAULT_MODEL, llm: Any = None) -> None:
+    def __init__(
+        self, *, model: str = _DEFAULT_MODEL, llm: Any = None, callbacks: list | None = None
+    ) -> None:
         self._model = model
         self._llm = llm
+        self._callbacks = callbacks
 
     def _client(self):
         if self._llm is None:
             from langchain_anthropic import ChatAnthropic
 
-            self._llm = ChatAnthropic(model=self._model)
+            self._llm = ChatAnthropic(model=self._model, callbacks=self._callbacks)
         return self._llm
 
     def reason(self, invoice: Invoice, base: Classification) -> Classification:
