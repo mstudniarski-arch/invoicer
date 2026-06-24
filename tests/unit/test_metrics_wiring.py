@@ -28,6 +28,7 @@ def _cb() -> LlmMetricsCallback:
 @pytest.mark.parametrize("factory", _FACTORIES)
 def test_adapter_passes_callbacks_to_chatanthropic(monkeypatch, factory):
     monkeypatch.setattr(langchain_anthropic, "ChatAnthropic", _RecordingChat)
+    _RecordingChat.last_kwargs = {}  # brak forwardu -> glosny KeyError, nie ciche stale
     cb = _cb()
     factory(callbacks=[cb])._client()
     assert _RecordingChat.last_kwargs["model"] == "claude-sonnet-4-6"
@@ -37,5 +38,6 @@ def test_adapter_passes_callbacks_to_chatanthropic(monkeypatch, factory):
 @pytest.mark.parametrize("factory", _FACTORIES)
 def test_adapter_default_callbacks_is_none(monkeypatch, factory):
     monkeypatch.setattr(langchain_anthropic, "ChatAnthropic", _RecordingChat)
+    _RecordingChat.last_kwargs = {}  # brak forwardu -> glosny KeyError, nie ciche stale
     factory()._client()
     assert _RecordingChat.last_kwargs["callbacks"] is None
