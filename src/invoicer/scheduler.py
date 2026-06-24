@@ -44,9 +44,7 @@ def run_daily_intake(
             counters.incr_failed()
             # nie podnosimy — kolejna faktura ma sie przetworzyc; szczegoly w Sentry/log (Plan 2)
             _logger.exception("intake: faktura %s nie przeszla", doc.filename)
-    _logger.info(
-        "intake done: processed=%d failed=%d", counters.processed, counters.failed
-    )
+    _logger.info("intake done: processed=%d failed=%d", counters.processed, counters.failed)
 
 
 def build_scheduler(
