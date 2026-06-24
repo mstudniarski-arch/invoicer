@@ -87,3 +87,30 @@ def test_inbound_resume_failure_returns_resume_failed():
     assert resp.json()["thread_id"] == "t1"
     # PII z wyjatku nie moze wyciec do odpowiedzi HTTP
     assert "5260001246" not in resp.text
+
+
+def test_inbound_calls_on_resume_failure_and_returns_2xx():
+    from fastapi.testclient import TestClient
+
+    from invoicer.webhook import create_inbound_app
+
+    class _Registry:
+        def resolve_oldest(self, phone):
+            return "thread-1"
+
+    def boom_resume(graph, *, thread_id, decision):
+        raise RuntimeError("ksiegowanie padlo")
+
+    captured: list[tuple[str, str]] = []
+
+    app = create_inbound_app(
+        object(),
+        _Registry(),
+        resume=boom_resume,
+        on_resume_failure=lambda thread_id, exc: captured.append((thread_id, str(exc))),
+    )
+    client = TestClient(app)
+    r = client.post("/whatsapp/inbound", data={"From": "whatsapp:+48111", "Body": "TAK"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "resume_failed"
+    assert captured == [("thread-1", "ksiegowanie padlo")]
