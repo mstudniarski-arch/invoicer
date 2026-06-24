@@ -16,6 +16,8 @@ from invoicer.bootstrap import bootstrap_gmail_token
 from invoicer.graph.build import build_invoice_graph
 from invoicer.ledger import Ledger
 from invoicer.observability import LlmMetrics
+from invoicer.observability_alerts import format_failure_alert, send_failure_alert
+from invoicer.observability_sentry import init_sentry
 from invoicer.observability_status import PipelineCounters, pipeline_status
 from invoicer.runner import _demo_invoice, persistent_checkpointer
 from invoicer.scheduler import build_scheduler, run_daily_intake
@@ -84,8 +86,17 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     )
     install_redaction(logging.getLogger("invoicer"))
 
+    channel = None
+    on_resume_failure = None
     if not settings.test_mode:
+        init_sentry(os.getenv("SENTRY_DSN"))
         bootstrap_gmail_token("GMAIL_TOKEN_B64", settings.data_dir / "token.json")
+        from invoicer.adapters.twilio_whatsapp import build_twilio_whatsapp_channel
+
+        channel = build_twilio_whatsapp_channel()
+
+        def on_resume_failure(thread_id: str, exc: Exception) -> None:
+            send_failure_alert(channel, format_failure_alert(f"watek {thread_id}", str(exc)))
 
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     db_path = str(settings.data_dir / "invoicer_state.sqlite")
@@ -101,7 +112,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     )
 
     # webhook (reuzycie logiki Planu B) + dodatkowe endpointy
-    app = create_inbound_app(graph, registry)
+    app = create_inbound_app(graph, registry, on_resume_failure=on_resume_failure)
 
     @app.get("/health")
     def health() -> dict:
@@ -119,9 +130,6 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
         from invoicer.adapters.claude_detector import ClaudeInvoiceDetector
         from invoicer.adapters.gmail import GmailAdapter
         from invoicer.adapters.gmail_auth import gmail_service_from_token
-        from invoicer.adapters.twilio_whatsapp import build_twilio_whatsapp_channel
-
-        channel = build_twilio_whatsapp_channel()
 
         def _job() -> None:
             service = gmail_service_from_token(settings.data_dir / "token.json")
@@ -134,6 +142,9 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
                 sender=settings.gmail_sender,
                 phone=settings.approver_phone,
                 counters=counters,
+                alert=lambda ctx, reason: send_failure_alert(
+                    channel, format_failure_alert(ctx, reason)
+                ),
             )
 
         scheduler = build_scheduler(

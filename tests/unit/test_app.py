@@ -57,3 +57,15 @@ def test_inbound_ignored_for_unknown_body(tmp_path):
             data={"From": "whatsapp:+48111", "Body": "?"},
         )
         assert r.json() == {"status": "ignored"}
+
+
+def test_sentry_not_initialized_in_test_mode(tmp_path, monkeypatch):
+    import invoicer.app as appmod
+
+    calls: list[str | None] = []
+    monkeypatch.setattr(appmod, "init_sentry", lambda dsn: calls.append(dsn) or False)
+    app = create_app(settings=_settings(tmp_path))
+    # test_mode: Sentry NIE jest inicjalizowany (brak realnych adapterow/sekretow)
+    assert calls == []
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200

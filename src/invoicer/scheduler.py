@@ -25,6 +25,7 @@ def run_daily_intake(
     phone: str,
     counters: PipelineCounters,
     request_fn: Callable[..., dict | None] = request_invoice_approval,
+    alert: Callable[[str, str], None] = lambda *_: None,
 ) -> None:
     """Codzienny zaciag: Gmail -> detekcja -> per-faktura request akceptacji.
 
@@ -40,10 +41,10 @@ def run_daily_intake(
         try:
             request_fn(graph, channel, registry, doc, thread_id=thread_id, phone=phone)
             counters.incr_processed()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - jedna zla faktura nie blokuje pozostalych
             counters.incr_failed()
-            # nie podnosimy — kolejna faktura ma sie przetworzyc; szczegoly w Sentry/log (Plan 2)
             _logger.exception("intake: faktura %s nie przeszla", doc.filename)
+            alert(doc.filename, str(exc))
     _logger.info("intake done: processed=%d failed=%d", counters.processed, counters.failed)
 
 

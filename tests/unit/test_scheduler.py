@@ -105,3 +105,32 @@ def test_build_scheduler_adds_cron_job():
     field_names = [f.name for f in trigger.fields]
     assert "hour" in field_names and "minute" in field_names
     assert str(trigger.timezone) == "Europe/Warsaw"
+
+
+def test_run_daily_intake_calls_alert_on_failure():
+    docs = [_doc("a.pdf"), _doc("b.pdf")]
+    channel = StubApprovalChannel()
+    counters = PipelineCounters()
+    alerts: list[tuple[str, str]] = []
+
+    def request_fn(graph, channel_, registry, document, *, thread_id, phone):
+        if document.filename == "b.pdf":
+            raise RuntimeError("ekstrakcja padla")
+        channel_.request_approval({"x": document.filename})
+        return {"x": document.filename}
+
+    run_daily_intake(
+        MagicMock(),
+        channel,
+        MagicMock(),
+        _FakeSource(docs),
+        StubInvoiceDetector(result=True),
+        sender="owner@example.com",
+        phone="whatsapp:+48111",
+        counters=counters,
+        request_fn=request_fn,
+        alert=lambda ctx, reason: alerts.append((ctx, reason)),
+    )
+    assert len(alerts) == 1
+    assert alerts[0][0] == "b.pdf"
+    assert "ekstrakcja padla" in alerts[0][1]

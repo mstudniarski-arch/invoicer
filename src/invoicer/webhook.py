@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from fastapi import FastAPI, Form
 
@@ -23,7 +24,13 @@ def parse_decision(body: str) -> str | None:
     return None
 
 
-def create_inbound_app(graph, registry, *, resume=resume_document) -> FastAPI:
+def create_inbound_app(
+    graph,
+    registry,
+    *,
+    resume=resume_document,
+    on_resume_failure: Callable[[str, Exception], None] | None = None,
+) -> FastAPI:
     """FastAPI z webhookiem Twilio (POST /whatsapp/inbound).
 
     Twilio wola endpoint przy odpowiedzi WhatsApp (form: From, Body). Parsuje TAK/NIE,
@@ -47,6 +54,8 @@ def create_inbound_app(graph, registry, *, resume=resume_document) -> FastAPI:
             resume(graph, thread_id=thread_id, decision=decision)
         except Exception as exc:  # noqa: BLE001 - webhook musi zwrocic 2xx (brak retry-storm Twilio)
             _logger.error("resume nieudany dla %s: %s", thread_id, redact_pii(str(exc)))
+            if on_resume_failure is not None:
+                on_resume_failure(thread_id, exc)
             return {"status": "resume_failed", "thread_id": thread_id}
         return {"status": "resumed", "decision": decision, "thread_id": thread_id}
 
