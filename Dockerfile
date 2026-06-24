@@ -22,4 +22,5 @@ COPY src ./src
 
 # 3) Runtime
 EXPOSE 8080
-CMD ["uv", "run", "uvicorn", "invoicer.app:_factory", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+# --no-sync: uzyj gotowego .venv z warstwy build; NIE synchronizuj dev-deps przy starcie (offline-safe)
+CMD ["uv", "run", "--no-sync", "uvicorn", "invoicer.app:_factory", "--factory", "--host", "0.0.0.0", "--port", "8080"]
