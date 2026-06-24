@@ -4,6 +4,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
@@ -89,13 +90,18 @@ class LlmMetricsCallback(BaseCallbackHandler):
         self._model = model
         self._clock = clock
         self._logger = logger or logging.getLogger(_METRICS_LOGGER)
-        self._starts: dict = {}
+        # klucz run_id to uuid.UUID w produkcji (str w testach) — hash-based, oba dzialaja
+        self._starts: dict[Any, float] = {}
 
     def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs) -> None:
         self._starts[run_id] = self._clock()
 
     def on_llm_start(self, serialized, prompts, *, run_id, **kwargs) -> None:
         self._starts[run_id] = self._clock()
+
+    def on_llm_error(self, error, *, run_id, **kwargs) -> None:
+        # nieudane wywolanie nie wywola on_llm_end — sprzatamy start, by run_id nie wyciekal
+        self._starts.pop(run_id, None)
 
     def on_llm_end(self, response, *, run_id, **kwargs) -> None:
         start = self._starts.pop(run_id, None)

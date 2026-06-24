@@ -137,3 +137,13 @@ def test_callback_logs_metrics_without_pii(caplog):
     assert "output_tokens=35" in text
     assert "cost_usd=" in text
     assert "latency_ms=" in text
+
+
+def test_callback_cleans_up_start_on_error():
+    # blad LLM: on_llm_error sprzata start, brak wpisu w kolektorze, brak wycieku run_id
+    metrics = LlmMetrics()
+    cb = LlmMetricsCallback(metrics, model="claude-sonnet-4-6", clock=iter([1.0]).__next__)
+    cb.on_chat_model_start({}, [], run_id="err1")
+    cb.on_llm_error(RuntimeError("boom"), run_id="err1")
+    assert metrics.calls == []
+    assert cb._starts == {}
