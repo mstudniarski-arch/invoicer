@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 # Stawki USD za 1M tokenow. Zrodlo: referencja claude-api (cache 2026-06-04).
 # Przyblizone i konfigurowalne — latwo zaktualizowac/rozszerzyc. To nie jest billing Anthropic.
 _PRICING: dict[str, tuple[float, float]] = {
@@ -17,3 +19,34 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
         return 0.0
     in_rate, out_rate = rates
     return input_tokens / 1_000_000 * in_rate + output_tokens / 1_000_000 * out_rate
+
+
+@dataclass(frozen=True)
+class LlmCall:
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    latency_ms: int
+
+
+class LlmMetrics:
+    """Kolektor in-memory wywolan LLM."""
+
+    def __init__(self) -> None:
+        self.calls: list[LlmCall] = []
+
+    def record(self, call: LlmCall) -> None:
+        self.calls.append(call)
+
+    def totals(self) -> dict:
+        input_tokens = sum(c.input_tokens for c in self.calls)
+        output_tokens = sum(c.output_tokens for c in self.calls)
+        return {
+            "n_calls": len(self.calls),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "cost_usd": sum(c.cost_usd for c in self.calls),
+            "latency_ms": sum(c.latency_ms for c in self.calls),
+        }

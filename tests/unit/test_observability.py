@@ -1,6 +1,6 @@
 import pytest
 
-from invoicer.observability import estimate_cost
+from invoicer.observability import LlmCall, LlmMetrics, estimate_cost
 
 
 def test_estimate_cost_sonnet():
@@ -24,3 +24,26 @@ def test_estimate_cost_unknown_model_is_zero():
 
 def test_estimate_cost_zero_tokens():
     assert estimate_cost("claude-sonnet-4-6", 0, 0) == 0.0
+
+
+def test_metrics_record_and_totals():
+    m = LlmMetrics()
+    m.record(LlmCall("claude-sonnet-4-6", 100, 20, 0.0006, 500))
+    m.record(LlmCall("claude-sonnet-4-6", 200, 30, 0.0011, 700))
+    t = m.totals()
+    assert t["n_calls"] == 2
+    assert t["input_tokens"] == 300
+    assert t["output_tokens"] == 50
+    assert t["total_tokens"] == 350
+    assert t["latency_ms"] == 1200
+    assert t["cost_usd"] == pytest.approx(0.0017)
+
+
+def test_metrics_empty_totals():
+    t = LlmMetrics().totals()
+    assert t["n_calls"] == 0
+    assert t["input_tokens"] == 0
+    assert t["output_tokens"] == 0
+    assert t["total_tokens"] == 0
+    assert t["cost_usd"] == 0
+    assert t["latency_ms"] == 0
