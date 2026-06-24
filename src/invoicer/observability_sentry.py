@@ -6,7 +6,12 @@ from invoicer.security import redact_pii
 
 
 def _redact_obj(obj: Any) -> Any:
-    """Rekursywnie redaguje PII we wszystkich stringach (dict/list/tuple/str)."""
+    """Rekursywnie redaguje PII we wszystkich stringach (dict/list/tuple/str).
+
+    Pokrywa typy, ktore produkuje Sentry LoggingIntegration (str/dict/list + skalary).
+    Inne skalary (int/float/bool/None) przechodza bez zmian; bytes/set NIE sa rekurowane —
+    nieosiagalne w obecnym kodzie (jedyny punkt to sentry_sdk.init, brak custom scope).
+    """
     if isinstance(obj, str):
         return redact_pii(obj)
     if isinstance(obj, dict):
