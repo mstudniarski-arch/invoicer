@@ -39,7 +39,7 @@ class LlmMetrics:
     def record(self, call: LlmCall) -> None:
         self.calls.append(call)
 
-    def totals(self) -> dict:
+    def totals(self) -> dict[str, int | float]:
         input_tokens = sum(c.input_tokens for c in self.calls)
         output_tokens = sum(c.output_tokens for c in self.calls)
         return {
