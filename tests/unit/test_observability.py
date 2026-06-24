@@ -13,6 +13,11 @@ def test_estimate_cost_opus():
     assert estimate_cost("claude-opus-4-8", 1000, 1000) == pytest.approx(0.030)
 
 
+def test_estimate_cost_haiku():
+    # 1000 in + 1000 out @ (1, 5) USD/Mtok = 0.001 + 0.005
+    assert estimate_cost("claude-haiku-4-5", 1000, 1000) == pytest.approx(0.006)
+
+
 def test_estimate_cost_unknown_model_is_zero():
     assert estimate_cost("model-ktorego-nie-ma", 1000, 1000) == 0.0
 
