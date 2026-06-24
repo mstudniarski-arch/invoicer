@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import logging
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+
+from langchain_core.callbacks import BaseCallbackHandler
+
+_METRICS_LOGGER = "invoicer.metrics"
 
 # Stawki USD za 1M tokenow. Zrodlo: referencja claude-api (cache 2026-06-04).
 # Przyblizone i konfigurowalne — latwo zaktualizowac/rozszerzyc. To nie jest billing Anthropic.
@@ -50,3 +57,67 @@ class LlmMetrics:
             "cost_usd": sum(c.cost_usd for c in self.calls),
             "latency_ms": sum(c.latency_ms for c in self.calls),
         }
+
+
+def _usage_from_response(response) -> tuple[int, int]:
+    """Wyciaga (input_tokens, output_tokens) z LLMResult; brak danych -> (0, 0)."""
+    try:
+        message = response.generations[0][0].message
+    except (AttributeError, IndexError):
+        return 0, 0
+    usage = getattr(message, "usage_metadata", None)
+    if not usage:
+        return 0, 0
+    return int(usage.get("input_tokens", 0) or 0), int(usage.get("output_tokens", 0) or 0)
+
+
+class LlmMetricsCallback(BaseCallbackHandler):
+    """Mierzy latencje (per run_id) i koszt kazdego wywolania LLM.
+
+    Zapis do kolektora + log (bez PII).
+    """
+
+    def __init__(
+        self,
+        metrics: LlmMetrics,
+        *,
+        model: str,
+        clock: Callable[[], float] = time.monotonic,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self._metrics = metrics
+        self._model = model
+        self._clock = clock
+        self._logger = logger or logging.getLogger(_METRICS_LOGGER)
+        self._starts: dict = {}
+
+    def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs) -> None:
+        self._starts[run_id] = self._clock()
+
+    def on_llm_start(self, serialized, prompts, *, run_id, **kwargs) -> None:
+        self._starts[run_id] = self._clock()
+
+    def on_llm_end(self, response, *, run_id, **kwargs) -> None:
+        start = self._starts.pop(run_id, None)
+        end = self._clock()
+        latency_ms = round((end - start) * 1000) if start is not None else 0
+
+        input_tokens, output_tokens = _usage_from_response(response)
+        cost = estimate_cost(self._model, input_tokens, output_tokens)
+        self._metrics.record(
+            LlmCall(
+                model=self._model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost,
+                latency_ms=latency_ms,
+            )
+        )
+        self._logger.info(
+            "llm_call model=%s input_tokens=%d output_tokens=%d cost_usd=%.6f latency_ms=%d",
+            self._model,
+            input_tokens,
+            output_tokens,
+            cost,
+            latency_ms,
+        )
