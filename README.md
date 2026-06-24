@@ -88,4 +88,69 @@ To run the live tests, set `ANTHROPIC_API_KEY` and drop a real invoice PDF at `t
 
 ---
 
+## Deploy (Fly.io)
+
+Agent dziala 24/7 jako jeden zawsze-zywy serwis: realny webhook `POST /whatsapp/inbound`
++ in-process scheduler codziennego zaciagu (08:00 Europe/Warsaw) + trwala SQLite na wolumenie.
+
+### 1. Jednorazowy setup
+
+```bash
+# 1) Konto Fly + CLI
+brew install flyctl
+fly auth login
+
+# 2) Utworz aplikacje z istniejacego fly.toml (NIE generuj nowego)
+fly launch --copy-config --no-deploy
+
+# 3) Wolumen na /data (region zgodny z fly.toml, np. waw)
+fly volumes create invoicer_data --region waw --size 1
+
+# 4) Sekrety (wszystkie za jednym razem)
+fly secrets set \
+  ANTHROPIC_API_KEY="..." \
+  TWILIO_ACCOUNT_SID="AC..." \
+  TWILIO_AUTH_TOKEN="..." \
+  TWILIO_WHATSAPP_FROM="whatsapp:+14155238886" \
+  APPROVER_WHATSAPP_TO="whatsapp:+48..." \
+  FAKTUROWNIA_API_TOKEN="..." \
+  FAKTUROWNIA_DOMAIN="mstudniarski" \
+  GMAIL_SENDER_FILTER="m.studniarski@gmail.com" \
+  INVOICER_SINK="fakturownia"
+
+# 5) Gmail token (headless): zakoduj lokalny token.json -> sekret
+fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"
+```
+
+### 2. Deploy
+
+```bash
+fly deploy
+fly logs       # logi na zywo
+curl -s https://<twoj-app>.fly.dev/health
+curl -s https://<twoj-app>.fly.dev/status | jq
+```
+
+### 3. Webhook WhatsApp w Twilio
+
+Twilio Console -> Messaging -> Sandbox -> "When a message comes in":
+
+```
+https://<twoj-app>.fly.dev/whatsapp/inbound   (POST)
+```
+
+### 4. Aktualizacje
+
+`fly deploy` po kazdej zmianie w `main`. Maszyna restartuje (rolling); stan na `/data` przezywa.
+Auto-deploy z CI/CD = osobny plan (Plan 2).
+
+### Rotacja tokenu Gmail
+
+Refresh-token jest dlugozyjacy. Jezeli wygasnie:
+1. Uruchom lokalnie `authorize_gmail(...)` -> nowy `token.json`.
+2. `fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"`.
+3. `fly deploy` (restart maszyny ladujacy nowy token).
+
+---
+
 *This is a portfolio project. It demonstrates agent design, Polish-tax domain modeling, and security-conscious LLM integration; it is not a certified tax tool — every booking is gated by a human.*

@@ -24,3 +24,15 @@ def test_phones_are_isolated(tmp_path):
     reg.add("b1", "whatsapp:+48600")
     assert reg.resolve_oldest("whatsapp:+48600") == "b1"
     assert reg.resolve_oldest("whatsapp:+48500") == "a1"
+
+
+def test_count_pending_counts_only_pending_status(tmp_path):
+    reg = PendingApprovals(str(tmp_path / "p.sqlite"))
+    reg.add("t1", "whatsapp:+48111")
+    reg.add("t2", "whatsapp:+48111")
+    reg.add("t3", "whatsapp:+48222")
+    assert reg.count_pending() == 3
+    assert reg.count_pending(phone="whatsapp:+48111") == 2
+    reg.resolve_oldest("whatsapp:+48111")  # -> "t1" resolved
+    assert reg.count_pending() == 2
+    assert reg.count_pending(phone="whatsapp:+48111") == 1

@@ -42,3 +42,17 @@ class PendingApprovals:
         )
         self._conn.commit()
         return thread_id
+
+    def count_pending(self, *, phone: str | None = None) -> int:
+        """Liczba wpisow ze statusem 'pending' (opcjonalnie filtrowana po numerze)."""
+        if phone is None:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM pending_approvals WHERE status = 'pending'"
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM pending_approvals "
+                "WHERE status = 'pending' AND sender_phone = ?",
+                (phone,),
+            ).fetchone()
+        return int(row[0]) if row else 0

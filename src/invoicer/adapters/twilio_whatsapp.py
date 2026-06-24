@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 
 from invoicer.security import redact_pii
+
+_TWILIO_SID = re.compile(r"\bAC[0-9a-fA-F]{10,32}\b")
 
 
 class TwilioError(RuntimeError):
@@ -50,6 +53,17 @@ class TwilioWhatsAppChannel:
         if not 200 <= resp.status_code < 300:
             snippet = redact_pii(str(resp.text))[:500]
             raise TwilioError(f"Twilio POST {url} -> {resp.status_code}: {snippet}")
+
+    def notify(self, text: str) -> None:
+        """Wysyla dowolna wiadomosc WhatsApp (alert/notyfikacja) do skonfigurowanego approvera."""
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{self._sid}/Messages.json"
+        data = {"From": self._from, "To": self._to, "Body": text}
+        resp = self._client.post(url, data=data, auth=(self._sid, self._token))
+        if not 200 <= resp.status_code < 300:
+            snippet = _TWILIO_SID.sub("[REDACTED_SID]", redact_pii(str(resp.text)))[:500]
+            if self._sid in snippet:
+                snippet = snippet.replace(self._sid, "[REDACTED_SID]")
+            raise TwilioError(f"Twilio POST -> {resp.status_code}: {snippet}")
 
 
 def build_twilio_whatsapp_channel() -> TwilioWhatsAppChannel:
