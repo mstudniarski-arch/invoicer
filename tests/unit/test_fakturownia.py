@@ -75,7 +75,7 @@ def test_post_builds_cost_invoice_and_returns_booking_result():
     assert inv["buyer_name"] == "My"
     assert inv["currency"] == "PLN"
     assert inv["positions"] == [
-        {"name": "Usluga", "quantity": "2", "price_net": "1000.00", "tax": 23}
+        {"name": "Usluga", "quantity": "2", "total_price_gross": "2460.00", "tax": 23}
     ]
     assert result.booking_id == "FZ/2026/1"
     assert result.sink == "fakturownia"
@@ -146,4 +146,9 @@ def test_positions_maps_all_lines():
     sink.post(payload)
     positions = client.calls[0][1]["invoice"]["positions"]
     assert len(positions) == 2
-    assert positions[1] == {"name": "Druga", "quantity": "3", "price_net": "50.00", "tax": 8}
+    assert positions[1] == {
+        "name": "Druga",
+        "quantity": "3",
+        "total_price_gross": "162.00",
+        "tax": 8,
+    }

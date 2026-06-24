@@ -22,12 +22,14 @@ def _today_iso() -> str:
 
 
 def _positions(payload: BookingPayload) -> list[dict]:
-    # kwoty jako string (jak LedgerEntry.total_gross) — stabilny zapis, bez float w kwotach
+    # Fakturownia wymaga brutto pozycji (total_price_gross) — bez niego POST -> 422.
+    # Netto liczy sama z brutto+VAT (brak ryzyka niespojnosci netto/brutto).
+    # Kwoty jako string (jak LedgerEntry.total_gross) — stabilny zapis, bez float w kwotach.
     return [
         {
             "name": line.description,
             "quantity": str(line.quantity),
-            "price_net": str(line.unit_net),
+            "total_price_gross": str(line.gross),
             "tax": int(line.vat_rate * 100),
         }
         for line in payload.lines
