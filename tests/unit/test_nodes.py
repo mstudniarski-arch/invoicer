@@ -14,9 +14,11 @@ from invoicer.graph.nodes import (
     make_validate_node,
     route_after_classify,
     route_after_review,
+    route_after_validate,
 )
 from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import (
+    Check,
     CheckStatus,
     Classification,
     CountryBucket,
@@ -25,6 +27,7 @@ from invoicer.models import (
     LineItem,
     Party,
     TaxTreatment,
+    ValidationResult,
 )
 
 
@@ -103,6 +106,24 @@ def test_validate_node_flags_duplicate(tmp_path):
     assert update["validation"].ok is False
     dup = next(c for c in update["validation"].checks if c.name == "duplicate")
     assert dup.status == CheckStatus.FAIL
+
+
+def test_route_after_validate_duplicate_skips_to_end():
+    # Faktura juz zaksiegowana (duplikat) -> pomijamy bramke, prosto do END.
+    state = {"invoice": _invoice(), "validation": ValidationResult(checks=[], is_duplicate=True)}
+    assert route_after_validate(state) == "end"
+
+
+def test_route_after_validate_non_duplicate_continues_to_classify():
+    # Zwykla faktura (nie-duplikat) -> normalny przeplyw do classify.
+    state = {"invoice": _invoice(), "validation": ValidationResult(checks=[], is_duplicate=False)}
+    assert route_after_validate(state) == "classify"
+
+
+def test_route_after_validate_hard_error_non_duplicate_still_to_classify():
+    # Twardy blad walidacji (np. NIP) NIE jest duplikatem -> nadal do czlowieka (classify).
+    bad = ValidationResult(checks=[Check(name="nip", status=CheckStatus.FAIL)], is_duplicate=False)
+    assert route_after_validate({"invoice": _invoice(), "validation": bad}) == "classify"
 
 
 def _foreign_invoice() -> Invoice:

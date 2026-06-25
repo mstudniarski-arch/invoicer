@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime
 
@@ -11,6 +12,8 @@ from invoicer.models import Classification, CountryBucket, TaxTreatment
 from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor
 from invoicer.state import InvoiceState
 from invoicer.validation import validate_invoice
+
+_logger = logging.getLogger("invoicer.graph")
 
 LOW_CONFIDENCE = 0.6
 
@@ -40,6 +43,21 @@ def make_validate_node(ledger: Ledger):
         return {"validation": validate_invoice(state["invoice"], ledger=ledger)}
 
     return validate
+
+
+def route_after_validate(state: InvoiceState) -> str:
+    """Krawedz warunkowa po validate: duplikat (juz zaksiegowany) -> END, inaczej -> classify.
+
+    Idempotencja: faktura wykryta jako duplikat w ledger nie ma po co isc do czlowieka
+    ani do ksiegowania — pomijamy cicho (log). Straznik w `book` zostaje jako defense-in-depth.
+    Zwykle bledy walidacji (NIP/sumy) NIE sa duplikatem -> nadal ida do human_review.
+    """
+    if state["validation"].is_duplicate:
+        invoice = state.get("invoice")
+        number = invoice.number if invoice is not None else "?"
+        _logger.info("validate: faktura %s juz zaksiegowana — pomijam (duplikat)", number)
+        return "end"
+    return "classify"
 
 
 # 27 panstw UE (zawiera PL). Sprzedawca z PL jest obslugiwany wczesniej (galaz country == "PL"),

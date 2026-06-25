@@ -6,17 +6,48 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.adapters.stub_reasoner import IdentityReasoner
+from invoicer.booking import BookingResult
 from invoicer.graph.build import build_invoice_graph
 from invoicer.ledger import Ledger
-from invoicer.models import Invoice, InvoiceDocument, LineItem, Party
+from invoicer.models import (
+    Check,
+    CheckStatus,
+    Classification,
+    CountryBucket,
+    Invoice,
+    InvoiceDocument,
+    LineItem,
+    Party,
+    TaxTreatment,
+    ValidationResult,
+)
 from invoicer.ports import EmailSource, InvoiceDetector
 from invoicer.state import InvoiceState
+
+# Typy wstawiane do stanu grafu (InvoiceState) — jawnie rejestrowane w serializerze
+# checkpointu LangGraph. Bez tej allowlisty default to "warn-but-allow"; w przyszlej
+# wersji LangGraph (LANGGRAPH_STRICT_MSGPACK=true) nieuznane typy zostana ZABLOKOWANE
+# i wrocą jako raw dict — co rozwali resume HITL (approve/reject po WhatsApp).
+_CHECKPOINT_ALLOWED_TYPES = (
+    InvoiceDocument,
+    Invoice,
+    LineItem,
+    Party,
+    Check,
+    CheckStatus,
+    ValidationResult,
+    Classification,
+    CountryBucket,
+    TaxTreatment,
+    BookingResult,
+)
 
 
 def start_document(graph, document: InvoiceDocument, *, thread_id: str) -> dict | None:
@@ -112,8 +143,11 @@ def persistent_checkpointer(db_path: str) -> SqliteSaver:
     """Trwaly checkpointer LangGraph (SQLite) — graf przezywa proces (async approve).
 
     check_same_thread=False: webhook (inny watek/proces) wznawia ten sam thread_id.
+    serde z jawna allowlist (_CHECKPOINT_ALLOWED_TYPES): odporne na przyszle wersje
+    LangGraph, ktore zablokuja deserializacje nieuznanych typow domyslnie.
     """
+    serde = JsonPlusSerializer(allowed_msgpack_modules=_CHECKPOINT_ALLOWED_TYPES)
     conn = sqlite3.connect(db_path, check_same_thread=False)
-    saver = SqliteSaver(conn)
+    saver = SqliteSaver(conn, serde=serde)
     saver.setup()
     return saver

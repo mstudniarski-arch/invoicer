@@ -157,3 +157,89 @@ def test_request_invoice_approval_registers_and_sends(tmp_path):
     assert payload["number"] == "FV/1"
     assert channel.sent == [payload]  # request wyslany z payloadem (sprzedawca/NIP/kwota)
     assert registry.resolve_oldest("whatsapp:+48500") == "w1"  # zarejestrowany pending
+
+
+def _state_with_all_custom_types() -> dict:
+    from invoicer.models import (
+        Check,
+        CheckStatus,
+        Classification,
+        CountryBucket,
+        TaxTreatment,
+        ValidationResult,
+    )
+
+    return {
+        "document": _doc(),
+        "invoice": _invoice(),
+        "validation": ValidationResult(
+            checks=[Check(name="nip", status=CheckStatus.PASS)],
+            is_duplicate=False,
+        ),
+        "classification": Classification(
+            treatment=TaxTreatment.KRAJOWA,
+            country_bucket=CountryBucket.PL,
+            rationale_pl="x",
+        ),
+    }
+
+
+def test_strict_serializer_without_allowlist_loses_custom_types(tmp_path):
+    """Sanity (baseline): strict serializer bez allowlist gubi typy — wraca raw dict.
+
+    Demonstruje problem, ktory naprawia persistent_checkpointer (LANGGRAPH_STRICT_MSGPACK=true
+    w przyszlej wersji LangGraph zablokuje nieuznane typy domyslnie).
+    """
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    strict = JsonPlusSerializer(allowed_msgpack_modules=None)
+    state = _state_with_all_custom_types()
+    type_, blob = strict.dumps_typed(state)
+    loaded = strict.loads_typed((type_, blob))
+    # Bez allowlist deserializer zwraca raw dict, nie InvoiceDocument/Invoice/...
+    assert not isinstance(loaded["invoice"], Invoice)
+    assert not isinstance(loaded["document"], InvoiceDocument)
+
+
+def test_persistent_checkpointer_registers_invoicer_models_in_allowlist(tmp_path):
+    """Fix konfiguracji: persistent_checkpointer JAWNIE rejestruje typy invoicer.models.
+
+    Przed fixem default sentinel -> _allowed_msgpack_modules == True (warn-but-allow);
+    po fixie -> set zawierajacy kluczowe typy. Odporne na LANGGRAPH_STRICT_MSGPACK=true.
+    """
+    from invoicer.runner import persistent_checkpointer
+
+    saver = persistent_checkpointer(str(tmp_path / "cp.sqlite"))
+    allowed = saver.serde._allowed_msgpack_modules
+    # Nie sentinel default -> nasz fix ustawił JAWNĄ liste
+    assert isinstance(allowed, set), (
+        f"oczekiwano set z allowlist, jest {type(allowed).__name__} ({allowed!r})"
+    )
+    expected = {
+        ("invoicer.models", "InvoiceDocument"),
+        ("invoicer.models", "Invoice"),
+        ("invoicer.models", "ValidationResult"),
+        ("invoicer.models", "Classification"),
+        ("invoicer.models", "CheckStatus"),
+        ("invoicer.models", "TaxTreatment"),
+        ("invoicer.models", "CountryBucket"),
+    }
+    missing = expected - allowed
+    assert not missing, f"brak w allowlist: {missing}"
+
+
+def test_persistent_checkpointer_round_trip_preserves_custom_types(tmp_path):
+    """Behavioral sanity: serde z fixem dalej poprawnie round-trip’uje state."""
+    from invoicer.models import Classification, ValidationResult
+    from invoicer.runner import persistent_checkpointer
+
+    saver = persistent_checkpointer(str(tmp_path / "cp.sqlite"))
+    state = _state_with_all_custom_types()
+    type_, blob = saver.serde.dumps_typed(state)
+    loaded = saver.serde.loads_typed((type_, blob))
+    assert isinstance(loaded["document"], InvoiceDocument)
+    assert isinstance(loaded["invoice"], Invoice)
+    assert isinstance(loaded["validation"], ValidationResult)
+    assert isinstance(loaded["classification"], Classification)
+    assert loaded["invoice"].number == "FV/1"
+    assert loaded["validation"].is_duplicate is False

@@ -15,6 +15,7 @@ from invoicer.graph.nodes import (
     make_validate_node,
     route_after_classify,
     route_after_review,
+    route_after_validate,
 )
 from invoicer.ledger import Ledger
 from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor
@@ -47,7 +48,9 @@ def build_invoice_graph(
 
     builder.add_edge(START, "extract")
     builder.add_edge("extract", "validate")
-    builder.add_edge("validate", "classify")
+    builder.add_conditional_edges(
+        "validate", route_after_validate, {"classify": "classify", "end": END}
+    )
     builder.add_conditional_edges(
         "classify",
         route_after_classify,

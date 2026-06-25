@@ -7,7 +7,7 @@ from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.adapters.stub_reasoner import StubExceptionReasoner
 from invoicer.graph.build import build_invoice_graph
-from invoicer.ledger import Ledger
+from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import (
     Classification,
     CountryBucket,
@@ -66,6 +66,29 @@ def test_graph_pauses_at_human_review_then_books_on_approve(tmp_path):
     assert paused.get("booking") is None
     final = graph.invoke(Command(resume="approve"), config)
     assert final["booking"].booking_id == "MOCK-FV/1"
+
+
+def test_graph_skips_human_review_for_already_booked_duplicate(tmp_path):
+    ledger = Ledger(tmp_path / "l.jsonl")
+    inv = _invoice()
+    # faktura juz zaksiegowana wczesniej (wpis w ledger)
+    ledger.append(
+        LedgerEntry(
+            number=inv.number,
+            seller_nip=inv.seller.nip,
+            seller_name=inv.seller.name,
+            total_gross=str(inv.total_gross),
+            booking_id="PRZED",
+            booked_at="2026-06-01T09:00:00",
+        )
+    )
+    graph = _graph(ledger)
+    config = {"configurable": {"thread_id": "dup1"}}
+    result = graph.invoke({"document": _doc(), "errors": []}, config)
+    # duplikat: graf NIE zatrzymuje sie na bramce (brak interrupt) i NIE ksieguje
+    assert result.get("__interrupt__") is None
+    assert result.get("booking") is None
+    assert result["validation"].is_duplicate is True
 
 
 def test_graph_does_not_book_on_reject(tmp_path):

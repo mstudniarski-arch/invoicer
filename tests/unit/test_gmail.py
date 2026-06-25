@@ -1,4 +1,5 @@
 import base64
+from datetime import date
 
 from invoicer.adapters.gmail import (
     GMAIL_SCOPES,
@@ -16,9 +17,12 @@ def test_scope_is_readonly():
     assert GMAIL_SCOPES == ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def test_build_query_uses_newer_than_window():
-    q = _build_query("a@b.pl")
-    assert q == "from:a@b.pl newer_than:2d has:attachment filename:pdf"
+def test_build_query_filters_unread_pdf_today_only():
+    q = _build_query("a@b.pl", today=date(2026, 6, 25))
+    assert (
+        q == "from:a@b.pl after:2026/06/25 before:2026/06/26 "
+        "has:attachment filename:pdf is:unread"
+    )
 
 
 def test_header_is_case_insensitive_and_missing_returns_none():
@@ -61,8 +65,11 @@ def test_iter_pdf_parts_matches_pdf_by_filename_even_if_mime_octet():
 
 
 def test_build_query_quotes_sender_with_spaces():
-    q = _build_query("Vendor X <v@x.pl>")
-    assert q == 'from:"Vendor X <v@x.pl>" newer_than:2d has:attachment filename:pdf'
+    q = _build_query("Vendor X <v@x.pl>", today=date(2026, 6, 25))
+    assert (
+        q == 'from:"Vendor X <v@x.pl>" after:2026/06/25 before:2026/06/26 '
+        "has:attachment filename:pdf is:unread"
+    )
 
 
 def test_b64url_decode_roundtrips_and_handles_empty():
@@ -260,7 +267,9 @@ class _CapturingGmail:
         return self._users
 
 
-def test_fetch_query_uses_newer_than():
+def test_fetch_query_filters_today_and_unread():
     service = _CapturingGmail()
-    GmailAdapter(service).fetch("a@b.pl")
-    assert service.msgs.queries[0] == "from:a@b.pl newer_than:2d has:attachment filename:pdf"
+    GmailAdapter(service).fetch("a@b.pl", today=date(2026, 6, 25))
+    assert service.msgs.queries[0] == (
+        "from:a@b.pl after:2026/06/25 before:2026/06/26 has:attachment filename:pdf is:unread"
+    )

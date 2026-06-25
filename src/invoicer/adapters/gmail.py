@@ -2,21 +2,25 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from invoicer.models import InvoiceDocument
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def _build_query(sender: str, *, lookback_days: int = 2) -> str:
-    """Zapytanie Gmail: PDF-y od nadawcy z ostatnich `lookback_days` dni (ruchome okno).
+def _build_query(sender: str, *, today: date) -> str:
+    """Zapytanie Gmail: NIEPRZECZYTANE PDF-y od nadawcy z DZIS (after..before, dzien kalendarzowy).
 
-    newer_than zamiast after/before: polling przez polnoc nie gubi maili 'z wczoraj'.
-    Trwala dedup (ProcessedDocuments) chroni przed podwojnym przetworzeniem.
+    is:unread + dzien kalendarzowy: skupiamy sie tylko na swiezych mailach jeszcze nie
+    obejrzanych w Gmailu. Kontrakt: nie otwieraj faktur poza Invoicerem (web/telefon
+    oznaczenie przeczytanym ukrywa je przed flow). Dedup (ProcessedDocuments) chroni
+    przed podwojnym przetworzeniem w jednym oknie.
     """
     token = f'"{sender}"' if (" " in sender or "<" in sender) else sender
-    return f"from:{token} newer_than:{lookback_days}d has:attachment filename:pdf"
+    after = today.strftime("%Y/%m/%d")
+    before = (today + timedelta(days=1)).strftime("%Y/%m/%d")
+    return f"from:{token} after:{after} before:{before} has:attachment filename:pdf is:unread"
 
 
 def _header(payload: dict, name: str) -> str | None:
@@ -72,9 +76,9 @@ class GmailAdapter:
         self._service = service
         self._user_id = user_id
 
-    def fetch(self, sender: str, *, lookback_days: int = 2) -> list[InvoiceDocument]:
+    def fetch(self, sender: str, *, today: date | None = None) -> list[InvoiceDocument]:
         messages = self._service.users().messages()
-        query = _build_query(sender, lookback_days=lookback_days)
+        query = _build_query(sender, today=today or date.today())
         docs: list[InvoiceDocument] = []
         page_token: str | None = None
         while True:

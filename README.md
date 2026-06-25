@@ -162,3 +162,14 @@ Refresh-token jest dlugozyjacy. Jezeli wygasnie:
 ---
 
 *This is a portfolio project. It demonstrates agent design, Polish-tax domain modeling, and security-conscious LLM integration; it is not a certified tax tool — every booking is gated by a human.*
+
+RUN:
+set -a; source .env; set +a
+PYTHONPATH=src uv run python scripts/run_flow_now.py
+
+Delete:
+# 1. Backup ledger (księga audytu z hash-chain)
+mv ledger.jsonl ledger.jsonl.bak-$(date +%Y%m%d-%H%M%S)
+
+# 2. Wyczyść bazę SQLite (tabela processed_documents tam siedzi)
+mv invoicer_state.sqlite invoicer_state.sqlite.bak-$(date +%Y%m%d-%H%M%S) 2>/dev/null

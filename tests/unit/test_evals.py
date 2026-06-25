@@ -92,7 +92,7 @@ def test_foreign_invoice_routes_through_reason_exception(tmp_path):
     assert payload["must_confirm"]  # zagraniczna -> czlowiek musi potwierdzic
 
 
-def test_duplicate_invoice_is_flagged(tmp_path):
+def test_duplicate_invoice_is_skipped_before_human_review(tmp_path):
     inv = _pl_invoice()
     ledger = Ledger(tmp_path / "l.jsonl")
     ledger.append(
@@ -112,7 +112,10 @@ def test_duplicate_invoice_is_flagged(tmp_path):
         clock=lambda: "2026-06-01T10:00:00",
     )
     payload = start_document(graph, _doc(), thread_id="dup")
-    assert "duplicate" in payload["flags"]  # duplikat oznaczony do czlowieka
+    # duplikat (juz zaksiegowany) jest pomijany — graf NIE zatrzymuje sie na bramce
+    assert payload is None
+    # i nic nie dopisano do ledger (brak podwojnego ksiegowania)
+    assert len(ledger.entries()) == 1
 
     # bucket-y istnieja (sanity importu modeli)
     assert CountryBucket.PL == "PL"
