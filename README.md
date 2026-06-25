@@ -48,7 +48,7 @@ Ports-and-adapters around a LangGraph state machine — the core depends only on
 | `EmailSource` | `FixtureSource` (local PDFs) | `GmailAdapter` *(planned)* |
 | `InvoiceExtractor` | `StubExtractor` | **`ClaudeVisionExtractor`** ✅ |
 | `ExceptionReasoner` | `IdentityReasoner` / `StubExceptionReasoner` | **`ClaudeExceptionReasoner`** ✅ |
-| `AccountingSink` | `MockSubiektSink` (offline/demo) | **`FakturowniaSink`** ✅ (REST, faktura kosztowa) |
+| `AccountingSink` | `MockSubiektSink` (offline/demo) | **`FakturowniaSink`** ✅ (REST, cost invoice) |
 | `HumanReview` | CLI (`process_document`) | Streamlit *(planned)* |
 
 Swapping the stub extractor for real Claude vision is a one-line change — the graph, state, and nodes are untouched:
@@ -90,23 +90,23 @@ To run the live tests, set `ANTHROPIC_API_KEY` and drop a real invoice PDF at `t
 
 ## Deploy (Fly.io)
 
-Agent dziala 24/7 jako jeden zawsze-zywy serwis: realny webhook `POST /whatsapp/inbound`
-+ in-process scheduler codziennego zaciagu (08:00 Europe/Warsaw) + trwala SQLite na wolumenie.
+The agent runs 24/7 as a single always-on service: a real `POST /whatsapp/inbound` webhook
++ an in-process scheduler for the daily intake (08:00 Europe/Warsaw) + durable SQLite on a volume.
 
-### 1. Jednorazowy setup
+### 1. One-time setup
 
 ```bash
-# 1) Konto Fly + CLI
+# 1) Fly account + CLI
 brew install flyctl
 fly auth login
 
-# 2) Utworz aplikacje z istniejacego fly.toml (NIE generuj nowego)
+# 2) Create the app from the existing fly.toml (DO NOT regenerate it)
 fly launch --copy-config --no-deploy
 
-# 3) Wolumen na /data (region zgodny z fly.toml, np. waw)
+# 3) Volume for /data (region matching fly.toml, e.g. waw)
 fly volumes create invoicer_data --region waw --size 1
 
-# 4) Sekrety (wszystkie za jednym razem)
+# 4) Secrets (all in one shot)
 fly secrets set \
   ANTHROPIC_API_KEY="..." \
   TWILIO_ACCOUNT_SID="AC..." \
@@ -118,7 +118,7 @@ fly secrets set \
   GMAIL_SENDER_FILTER="m.studniarski@gmail.com" \
   INVOICER_SINK="fakturownia"
 
-# 5) Gmail token (headless): zakoduj lokalny token.json -> sekret
+# 5) Gmail token (headless): encode the local token.json into a secret
 fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"
 ```
 
@@ -126,50 +126,56 @@ fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"
 
 ```bash
 fly deploy
-fly logs       # logi na zywo
-curl -s https://<twoj-app>.fly.dev/health
-curl -s https://<twoj-app>.fly.dev/status | jq
+fly logs       # live logs
+curl -s https://<your-app>.fly.dev/health
+curl -s https://<your-app>.fly.dev/status | jq
 ```
 
-### 3. Webhook WhatsApp w Twilio
+### 3. WhatsApp webhook in Twilio
 
-Twilio Console -> Messaging -> Sandbox -> "When a message comes in":
+Twilio Console → Messaging → Sandbox → "When a message comes in":
 
 ```
-https://<twoj-app>.fly.dev/whatsapp/inbound   (POST)
+https://<your-app>.fly.dev/whatsapp/inbound   (POST)
 ```
 
-### 4. Aktualizacje (CI/CD)
+### 4. Updates (CI/CD)
 
-Auto-deploy: po zielonym CI na `main` workflow `deploy.yml` robi `flyctl deploy` (rolling restart;
-stan na `/data` przezywa). Jednorazowo dodaj token Fly do sekretow GitHub:
+Auto-deploy: after a green CI run on `main`, the `deploy.yml` workflow runs `flyctl deploy`
+(rolling restart; state on `/data` survives). One-time: add the Fly token to GitHub secrets:
 
 ```bash
-fly tokens create deploy -x 999999h   # token deploy
-# GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret:
-#   nazwa: FLY_API_TOKEN   wartosc: <powyzszy token>
+fly tokens create deploy -x 999999h   # deploy token
+# GitHub repo → Settings → Secrets and variables → Actions → New repository secret:
+#   name: FLY_API_TOKEN   value: <the token above>
 ```
 
-Deploy reczny (gdy trzeba): `fly deploy`.
+Manual deploy (when needed): `fly deploy`.
 
-### Rotacja tokenu Gmail
+### Gmail token rotation
 
-Refresh-token jest dlugozyjacy. Jezeli wygasnie:
-1. Uruchom lokalnie `authorize_gmail(...)` -> nowy `token.json`.
+The refresh token is long-lived. If it expires:
+1. Run `authorize_gmail(...)` locally → new `token.json`.
 2. `fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"`.
-3. `fly deploy` (restart maszyny ladujacy nowy token).
+3. `fly deploy` (machine restart loads the new token).
 
 ---
 
 *This is a portfolio project. It demonstrates agent design, Polish-tax domain modeling, and security-conscious LLM integration; it is not a certified tax tool — every booking is gated by a human.*
 
-RUN:
+## Run locally
+
+```bash
 set -a; source .env; set +a
 PYTHONPATH=src uv run python scripts/run_flow_now.py
+```
 
-Delete:
-# 1. Backup ledger (księga audytu z hash-chain)
+## Reset local state
+
+```bash
+# 1. Backup ledger (hash-chained audit log)
 mv ledger.jsonl ledger.jsonl.bak-$(date +%Y%m%d-%H%M%S)
 
-# 2. Wyczyść bazę SQLite (tabela processed_documents tam siedzi)
+# 2. Wipe SQLite database (the processed_documents table lives here)
 mv invoicer_state.sqlite invoicer_state.sqlite.bak-$(date +%Y%m%d-%H%M%S) 2>/dev/null
+```
