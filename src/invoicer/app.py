@@ -19,8 +19,9 @@ from invoicer.observability import LlmMetrics
 from invoicer.observability_alerts import format_failure_alert, send_failure_alert
 from invoicer.observability_sentry import init_sentry
 from invoicer.observability_status import PipelineCounters, pipeline_status
+from invoicer.processed import ProcessedDocuments
 from invoicer.runner import _demo_invoice, persistent_checkpointer
-from invoicer.scheduler import build_scheduler, run_daily_intake
+from invoicer.scheduler import build_scheduler, run_intake
 from invoicer.security import install_redaction
 from invoicer.webhook import create_inbound_app
 
@@ -29,9 +30,7 @@ from invoicer.webhook import create_inbound_app
 class AppSettings:
     approver_phone: str
     gmail_sender: str
-    intake_hour: int = 8
-    intake_minute: int = 0
-    intake_tz: str = "Europe/Warsaw"
+    intake_interval_minutes: int = 5
     data_dir: Path = Path("/data")
     test_mode: bool = False  # True w testach: stuby + scheduler nie startuje
 
@@ -40,9 +39,7 @@ def _settings_from_env() -> AppSettings:
     return AppSettings(
         approver_phone=os.environ["APPROVER_WHATSAPP_TO"],
         gmail_sender=os.environ["GMAIL_SENDER_FILTER"],
-        intake_hour=int(os.getenv("INTAKE_HOUR", "8")),
-        intake_minute=int(os.getenv("INTAKE_MINUTE", "0")),
-        intake_tz=os.getenv("INTAKE_TZ", "Europe/Warsaw"),
+        intake_interval_minutes=int(os.getenv("INTAKE_INTERVAL_MINUTES", "5")),
         data_dir=Path(os.getenv("INVOICER_DATA_DIR", "/data")),
     )
 
@@ -102,6 +99,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     db_path = str(settings.data_dir / "invoicer_state.sqlite")
     checkpointer = persistent_checkpointer(db_path)
     registry = PendingApprovals(db_path)
+    processed = ProcessedDocuments(db_path)
     metrics = LlmMetrics()
     counters = PipelineCounters()
 
@@ -133,7 +131,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
 
         def _job() -> None:
             service = gmail_service_from_token(settings.data_dir / "token.json")
-            run_daily_intake(
+            run_intake(
                 graph,
                 channel,
                 registry,
@@ -142,6 +140,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
                 sender=settings.gmail_sender,
                 phone=settings.approver_phone,
                 counters=counters,
+                processed=processed,
                 alert=lambda ctx, reason: send_failure_alert(
                     channel, format_failure_alert(ctx, reason)
                 ),
@@ -149,9 +148,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
 
         scheduler = build_scheduler(
             _job,
-            hour=settings.intake_hour,
-            minute=settings.intake_minute,
-            tz=settings.intake_tz,
+            interval_minutes=settings.intake_interval_minutes,
         )
         scheduler.start()
         try:

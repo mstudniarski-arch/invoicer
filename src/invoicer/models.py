@@ -49,6 +49,7 @@ class InvoiceDocument(BaseModel):
     filename: str
     content: bytes
     subject: str = ""
+    message_id: str | None = None  # Gmail message id (klucz dedup); None dla upload/fixtur
 
 
 class CheckStatus(StrEnum):

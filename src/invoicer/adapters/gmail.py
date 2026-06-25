@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 
 from invoicer.models import InvoiceDocument
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def _build_query(sender: str, *, today: date) -> str:
-    """Zapytanie Gmail: faktury (PDF) od nadawcy, z JEDNEGO dnia kalendarzowego (after..before)."""
+def _build_query(sender: str, *, lookback_days: int = 2) -> str:
+    """Zapytanie Gmail: PDF-y od nadawcy z ostatnich `lookback_days` dni (ruchome okno).
+
+    newer_than zamiast after/before: polling przez polnoc nie gubi maili 'z wczoraj'.
+    Trwala dedup (ProcessedDocuments) chroni przed podwojnym przetworzeniem.
+    """
     token = f'"{sender}"' if (" " in sender or "<" in sender) else sender
-    after = today.strftime("%Y/%m/%d")
-    before = (today + timedelta(days=1)).strftime("%Y/%m/%d")
-    return f"from:{token} after:{after} before:{before} has:attachment filename:pdf"
+    return f"from:{token} newer_than:{lookback_days}d has:attachment filename:pdf"
 
 
 def _header(payload: dict, name: str) -> str | None:
@@ -70,9 +72,9 @@ class GmailAdapter:
         self._service = service
         self._user_id = user_id
 
-    def fetch(self, sender: str, *, today: date | None = None) -> list[InvoiceDocument]:
+    def fetch(self, sender: str, *, lookback_days: int = 2) -> list[InvoiceDocument]:
         messages = self._service.users().messages()
-        query = _build_query(sender, today=today or date.today())
+        query = _build_query(sender, lookback_days=lookback_days)
         docs: list[InvoiceDocument] = []
         page_token: str | None = None
         while True:
@@ -98,6 +100,7 @@ class GmailAdapter:
                             received_at=received_at,
                             filename=part.get("filename", "attachment.pdf"),
                             content=content,
+                            message_id=ref["id"],
                         )
                     )
             page_token = listing.get("nextPageToken")
