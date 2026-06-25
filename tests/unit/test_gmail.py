@@ -1,5 +1,4 @@
 import base64
-from datetime import date
 
 from invoicer.adapters.gmail import (
     GMAIL_SCOPES,
@@ -17,9 +16,9 @@ def test_scope_is_readonly():
     assert GMAIL_SCOPES == ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def test_build_query_filters_sender_pdf_and_day():
-    q = _build_query("a@b.pl", today=date(2026, 6, 23))
-    assert q == "from:a@b.pl after:2026/06/23 before:2026/06/24 has:attachment filename:pdf"
+def test_build_query_uses_newer_than_window():
+    q = _build_query("a@b.pl")
+    assert q == "from:a@b.pl newer_than:2d has:attachment filename:pdf"
 
 
 def test_header_is_case_insensitive_and_missing_returns_none():
@@ -62,11 +61,8 @@ def test_iter_pdf_parts_matches_pdf_by_filename_even_if_mime_octet():
 
 
 def test_build_query_quotes_sender_with_spaces():
-    q = _build_query("Vendor X <v@x.pl>", today=date(2026, 6, 23))
-    assert (
-        q
-        == 'from:"Vendor X <v@x.pl>" after:2026/06/23 before:2026/06/24 has:attachment filename:pdf'
-    )
+    q = _build_query("Vendor X <v@x.pl>")
+    assert q == 'from:"Vendor X <v@x.pl>" newer_than:2d has:attachment filename:pdf'
 
 
 def test_b64url_decode_roundtrips_and_handles_empty():
@@ -171,6 +167,7 @@ def test_fetch_builds_invoice_document_from_pdf_attachment():
     assert doc.filename == "faktura.pdf"
     assert "ksiegowa@klient.pl" in doc.sender
     assert doc.subject == "Faktura FV/1"
+    assert doc.message_id == "m1"  # message_id z ref["id"] (klucz dedup)
 
 
 def test_fetch_returns_empty_when_no_messages():
@@ -263,10 +260,7 @@ class _CapturingGmail:
         return self._users
 
 
-def test_fetch_forwards_today_into_query():
+def test_fetch_query_uses_newer_than():
     service = _CapturingGmail()
-    GmailAdapter(service).fetch("a@b.pl", today=date(2026, 6, 23))
-    assert (
-        service.msgs.queries[0]
-        == "from:a@b.pl after:2026/06/23 before:2026/06/24 has:attachment filename:pdf"
-    )
+    GmailAdapter(service).fetch("a@b.pl")
+    assert service.msgs.queries[0] == "from:a@b.pl newer_than:2d has:attachment filename:pdf"
