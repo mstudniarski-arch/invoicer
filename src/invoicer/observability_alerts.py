@@ -14,8 +14,11 @@ def format_failure_alert(context: str, reason: str) -> str:
 
 
 def send_failure_alert(channel: Any, text: str) -> None:
-    """Wysyla alert przez kanal (channel.notify). NIGDY nie rzuca — blad kanalu tylko logujemy."""
+    """Wysyla alert przez kanal (channel.notify). NIGDY nie rzuca — blad kanalu tylko logujemy.
+
+    Tresc przechodzi przez redact_pii: tekst alertu (np. str(exc)) nie wynosi PII/SID na WhatsApp.
+    """
     try:
-        channel.notify(text)
+        channel.notify(redact_pii(text))
     except Exception as exc:  # noqa: BLE001 - alert nie moze wywalic pipeline'u
         _logger.error("alert nieudany: %s", redact_pii(str(exc)))

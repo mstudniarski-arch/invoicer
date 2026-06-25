@@ -51,8 +51,9 @@ class TwilioWhatsAppChannel:
         data = {"From": self._from, "To": self._to, "Body": format_approval_message(payload)}
         resp = self._client.post(url, data=data, auth=(self._sid, self._token))
         if not 200 <= resp.status_code < 300:
+            # url zawiera SID — NIE wkladamy go do bledu (redact_pii i tak redaguje SID)
             snippet = redact_pii(str(resp.text))[:500]
-            raise TwilioError(f"Twilio POST {url} -> {resp.status_code}: {snippet}")
+            raise TwilioError(f"Twilio POST -> {resp.status_code}: {snippet}")
 
     def notify(self, text: str) -> None:
         """Wysyla dowolna wiadomosc WhatsApp (alert/notyfikacja) do skonfigurowanego approvera."""

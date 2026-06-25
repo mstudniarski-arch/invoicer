@@ -51,3 +51,30 @@ def test_notify_raises_on_non_2xx_with_redacted_body():
         assert "AC1234567890" not in msg
         return
     raise AssertionError("oczekiwano TwilioError")
+
+
+def test_request_approval_error_does_not_leak_sid():
+    # url request_approval zawiera SID — blad NIE moze go wyniesc (logi/Sentry/alert)
+    sid = "AC0123456789abcdef0123456789abcdef"
+    http = _FakeHttp(_FakeResponse(401, text='{"error":"unauthorized"}'))
+    channel = TwilioWhatsAppChannel(
+        http,
+        account_sid=sid,
+        auth_token="tok",
+        from_whatsapp="whatsapp:+1415",
+        to_whatsapp="whatsapp:+48999",
+    )
+    payload = {
+        "number": "FV/1",
+        "seller": "ACME",
+        "seller_nip": "5260001246",
+        "total_gross": "1230.00",
+        "currency": "PLN",
+        "treatment": "krajowa",
+    }
+    try:
+        channel.request_approval(payload)
+    except TwilioError as exc:
+        assert sid not in str(exc)
+        return
+    raise AssertionError("oczekiwano TwilioError")
