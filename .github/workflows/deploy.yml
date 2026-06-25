@@ -12,7 +12,10 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      # pin do commitu, ktory przeszedl CI (workflow_run domyslnie bierze HEAD main, nie ten commit)
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy to Fly
         run: flyctl deploy --remote-only

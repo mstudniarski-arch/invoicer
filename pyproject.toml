@@ -17,7 +17,6 @@ dependencies = [
     "pydantic>=2.7",
     "python-multipart>=0.0.32",
     "sentry-sdk>=2.0",
-    "streamlit>=1.58.0",
     "uvicorn>=0.49.0",
 ]
 
@@ -26,6 +25,11 @@ dev = [
     "pip-audit>=2.10.1",
     "pytest>=8.0",
     "ruff>=0.5",
+]
+# Demo lokalne (Streamlit) — POZA obrazem produkcyjnym (Dockerfile: uv sync --no-dev).
+# Uruchom: uv run --group demo streamlit run src/invoicer/ui/streamlit_app.py
+demo = [
+    "streamlit>=1.58.0",
 ]
 
 [tool.uv]

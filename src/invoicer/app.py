@@ -163,10 +163,10 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     return app
 
 
-# Eksponowane dla uvicorn (invoicer.app:app).
-# Tworzone leniwie wewnatrz, gdy uvicorn faktycznie laduje modul w kontenerze.
+# Uvicorn startuje przez FACTORY: `uvicorn invoicer.app:_factory --factory` (Dockerfile CMD).
+# Ten modul-level `app` jest celowo None (placeholder) — NIE jest sciezka uruchomienia.
 app: FastAPI | None = None
 
 
-def _factory() -> FastAPI:  # uvicorn factory mode
+def _factory() -> FastAPI:  # uvicorn factory mode (patrz Dockerfile CMD)
     return create_app()

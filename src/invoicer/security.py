@@ -17,6 +17,9 @@ _NIP = re.compile(r"\b\d{10}\b")  # NIP zwarty (10 cyfr)
 # E-mail:
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
+# Twilio Account SID (AC + 32 hex) — identyfikator konta; nie do logow/Sentry/alertow:
+_TWILIO_SID = re.compile(r"\bAC[0-9a-fA-F]{32}\b")
+
 
 def redact_pii(text: str) -> str:
     """Maskuje dane wrazliwe (rachunek/IBAN, NIP, e-mail) w tekscie przeznaczonym do logow.
@@ -26,6 +29,7 @@ def redact_pii(text: str) -> str:
     e-mail. Specyficzne grupowania (nie generyczne "cyfry+separatory") nie lapia dat ISO.
     Funkcja jest idempotentna: redact_pii(redact_pii(x)) == redact_pii(x).
     """
+    text = _TWILIO_SID.sub("[REDACTED_SID]", text)
     text = _IBAN_GROUPED.sub("[KONTO]", text)
     text = _IBAN_PL.sub("[KONTO]", text)
     text = _ACCOUNT.sub("[KONTO]", text)

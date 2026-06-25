@@ -34,7 +34,12 @@ def run_daily_intake(
     """
     import uuid
 
-    docs = fetch_invoice_documents(source, detector, sender)
+    try:
+        docs = fetch_invoice_documents(source, detector, sender)
+    except Exception as exc:  # noqa: BLE001 - blad zaciagu (np. wygasly token Gmaila) musi zaalarmowac
+        _logger.exception("intake: pobranie faktur nie powiodlo sie")
+        alert("intake", str(exc))
+        raise
     _logger.info("intake start: %d faktur do przetworzenia", len(docs))
     for doc in docs:
         thread_id = f"intake-{uuid.uuid4()}"

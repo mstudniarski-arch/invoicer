@@ -31,3 +31,13 @@ def test_send_failure_alert_never_raises_when_channel_fails():
     ch = _FakeChannel(boom=True)
     # alert nie moze wywalic pipeline'u — blad kanalu jest polykany
     send_failure_alert(ch, "⚠️ test")  # nie rzuca
+
+
+def test_send_failure_alert_redacts_pii_in_body():
+    # tresc alertu (np. str(wyjatku)) nie moze wyniesc PII/SID na WhatsApp
+    ch = _FakeChannel()
+    send_failure_alert(ch, "⚠️ f.pdf: NIP 5260001246 SID ACdeadbeefdeadbeefdeadbeefdeadbeef")
+    body = ch.sent[0]
+    assert "5260001246" not in body
+    assert "ACdeadbeefdeadbeefdeadbeefdeadbeef" not in body
+    assert "[NIP]" in body and "[REDACTED_SID]" in body
