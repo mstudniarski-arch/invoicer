@@ -9,9 +9,6 @@ def _settings(tmp_path) -> AppSettings:
     return AppSettings(
         approver_phone="whatsapp:+48111",
         gmail_sender="owner@example.com",
-        intake_hour=8,
-        intake_minute=0,
-        intake_tz="Europe/Warsaw",
         data_dir=tmp_path,
         # tryb testowy: bez realnych adapterow / scheduler nie startuje
         test_mode=True,
