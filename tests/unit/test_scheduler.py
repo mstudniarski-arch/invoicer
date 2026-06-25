@@ -104,8 +104,9 @@ def test_build_scheduler_adds_cron_job():
     assert len(jobs) == 1
     trigger = jobs[0].trigger
     assert getattr(trigger, "fields", None) is not None  # CronTrigger
-    field_names = [f.name for f in trigger.fields]
-    assert "hour" in field_names and "minute" in field_names
+    fields = {f.name: str(f) for f in trigger.fields}
+    assert fields["hour"] == "8"  # WARTOSC pola, nie tylko obecnosc (chroni przed swapem h/min)
+    assert fields["minute"] == "0"
     assert str(trigger.timezone) == "Europe/Warsaw"
 
 

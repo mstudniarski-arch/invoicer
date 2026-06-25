@@ -32,3 +32,7 @@ def test_init_sentry_calls_sdk_with_scrub(monkeypatch):
     assert init_sentry("https://abc@o1.ingest.sentry.io/1") is True
     assert captured["before_send"] is _scrub
     assert captured["send_default_pii"] is False
+    # before_breadcrumb to druga bramka PII (breadcrumbs z LoggingIntegration) — musi redagowac
+    crumb = captured["before_breadcrumb"]({"message": "NIP 5260001246"}, None)
+    assert "5260001246" not in str(crumb)
+    assert "[NIP]" in str(crumb)
