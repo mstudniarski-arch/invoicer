@@ -71,6 +71,8 @@ def test_pl_prefixed_iban_still_konto_not_nip():
 
 def test_redacts_twilio_account_sid():
     # Twilio Account SID (AC + 32 hex) nie moze trafic do logow/Sentry/alertow
-    out = redact_pii("Twilio https://api.twilio.com/2010-04-01/Accounts/AC0123456789abcdef0123456789abcdef/Messages.json")
+    out = redact_pii(
+        "Twilio https://api.twilio.com/2010-04-01/Accounts/AC0123456789abcdef0123456789abcdef/Messages.json"
+    )
     assert "AC0123456789abcdef0123456789abcdef" not in out
     assert "[REDACTED_SID]" in out
