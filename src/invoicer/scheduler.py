@@ -56,7 +56,9 @@ def run_intake(
         except Exception as exc:  # noqa: BLE001 - at-most-once: zapisz failed, NIE ponawiaj, zaalarmuj
             processed.mark(key, "failed")
             counters.incr_failed()
-            _logger.exception("intake: faktura %s nie przeszla (manualna interwencja)", doc.filename)
+            _logger.exception(
+                "intake: faktura %s nie przeszla (manualna interwencja)", doc.filename
+            )
             alert(doc.filename, f"wymaga manualnej interwencji: {exc}")
     _logger.info("intake done: processed=%d failed=%d", counters.processed, counters.failed)
 

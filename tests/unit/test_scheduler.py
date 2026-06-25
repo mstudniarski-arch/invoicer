@@ -60,10 +60,16 @@ def test_run_intake_requests_approval_per_detected_invoice():
         return payload
 
     run_intake(
-        MagicMock(), channel, registry, _FakeSource(docs),
+        MagicMock(),
+        channel,
+        registry,
+        _FakeSource(docs),
         StubInvoiceDetector(result=True),
-        sender="owner@example.com", phone="whatsapp:+48111",
-        counters=counters, processed=processed, request_fn=fake_request,
+        sender="owner@example.com",
+        phone="whatsapp:+48111",
+        counters=counters,
+        processed=processed,
+        request_fn=fake_request,
     )
     assert len(channel.sent) == 2
     assert counters.processed == 2
@@ -88,10 +94,16 @@ def test_run_intake_skips_already_processed():
         return {"x": document.filename}
 
     run_intake(
-        MagicMock(), channel, MagicMock(), _FakeSource(docs),
+        MagicMock(),
+        channel,
+        MagicMock(),
+        _FakeSource(docs),
         StubInvoiceDetector(result=True),
-        sender="owner@example.com", phone="whatsapp:+48111",
-        counters=counters, processed=processed, request_fn=request_fn,
+        sender="owner@example.com",
+        phone="whatsapp:+48111",
+        counters=counters,
+        processed=processed,
+        request_fn=request_fn,
     )
     assert calls == ["b.pdf"]  # a.pdf pominiety (idempotencja)
     assert counters.processed == 1
@@ -112,10 +124,16 @@ def test_run_intake_marks_failed_and_alerts_without_retry():
         return {"x": document.filename}
 
     run_intake(
-        MagicMock(), channel, MagicMock(), _FakeSource(docs),
+        MagicMock(),
+        channel,
+        MagicMock(),
+        _FakeSource(docs),
         StubInvoiceDetector(result=True),
-        sender="owner@example.com", phone="whatsapp:+48111",
-        counters=counters, processed=processed, request_fn=request_fn,
+        sender="owner@example.com",
+        phone="whatsapp:+48111",
+        counters=counters,
+        processed=processed,
+        request_fn=request_fn,
         alert=lambda ctx, reason: alerts.append((ctx, reason)),
     )
     assert [m["x"] for m in channel.sent] == ["a.pdf", "c.pdf"]
@@ -139,10 +157,15 @@ def test_run_intake_alerts_when_fetch_fails():
     alerts: list[tuple[str, str]] = []
     with pytest.raises(RuntimeError, match="token Gmaila wygasl"):
         run_intake(
-            MagicMock(), StubApprovalChannel(), MagicMock(), _BoomSource(),
+            MagicMock(),
+            StubApprovalChannel(),
+            MagicMock(),
+            _BoomSource(),
             StubInvoiceDetector(result=True),
-            sender="owner@example.com", phone="whatsapp:+48111",
-            counters=PipelineCounters(), processed=_FakeProcessed(),
+            sender="owner@example.com",
+            phone="whatsapp:+48111",
+            counters=PipelineCounters(),
+            processed=_FakeProcessed(),
             alert=lambda ctx, reason: alerts.append((ctx, reason)),
         )
     assert alerts == [("intake", "token Gmaila wygasl")]
