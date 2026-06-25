@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
+
 from invoicer.adapters.stub_approval import StubApprovalChannel
 from invoicer.adapters.stub_detector import StubInvoiceDetector
 from invoicer.models import InvoiceDocument
@@ -134,3 +136,26 @@ def test_run_daily_intake_calls_alert_on_failure():
     assert len(alerts) == 1
     assert alerts[0][0] == "b.pdf"
     assert "ekstrakcja padla" in alerts[0][1]
+
+
+class _BoomSource:
+    def fetch(self, sender):
+        raise RuntimeError("token Gmaila wygasl")
+
+
+def test_run_daily_intake_alerts_when_fetch_fails():
+    # blad zaciagu (poza petla per-faktura) MUSI zaalarmowac, nie zniknac cicho
+    alerts: list[tuple[str, str]] = []
+    with pytest.raises(RuntimeError, match="token Gmaila wygasl"):
+        run_daily_intake(
+            MagicMock(),
+            StubApprovalChannel(),
+            MagicMock(),
+            _BoomSource(),
+            StubInvoiceDetector(result=True),
+            sender="owner@example.com",
+            phone="whatsapp:+48111",
+            counters=PipelineCounters(),
+            alert=lambda ctx, reason: alerts.append((ctx, reason)),
+        )
+    assert alerts == [("intake", "token Gmaila wygasl")]
