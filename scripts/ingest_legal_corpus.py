@@ -21,6 +21,9 @@ def main() -> None:
     if not os.getenv("DATABASE_URL"):
         print("DATABASE_URL nieustawiony — pomijam ingest korpusu (brak pgvector).")
         return
+    if not os.getenv("VOYAGE_API_KEY"):
+        print("VOYAGE_API_KEY nieustawiony — pomijam ingest korpusu (brak embeddingow).")
+        return
     chunks = load_corpus(_LEGAL_DIR)
     embedder = VoyageEmbedder()
     store = PgVectorLegalStore(embedder)
