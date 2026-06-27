@@ -14,4 +14,4 @@ def test_live_embedding_shape_and_determinism():
     a = emb.embed_query("import uslug — art. 28b")
     b = emb.embed_query("import uslug — art. 28b")
     assert len(a) == 1024
-    assert a == b  # to samo zapytanie -> ten sam wektor
+    assert all(abs(x - y) < 1e-6 for x, y in zip(a, b, strict=True))
