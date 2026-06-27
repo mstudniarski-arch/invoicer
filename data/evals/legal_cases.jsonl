@@ -1,0 +1,6 @@
+{"id": "uk-saas", "seller_country": "GB", "currency": "GBP", "no_vat": true, "line_descriptions": ["Subskrypcja SaaS"], "expected_treatment": "import_uslug", "expected_article_refs": ["art. 28b ust. 1", "art. 17 ust. 1 pkt 4"]}
+{"id": "us-consulting", "seller_country": "US", "currency": "USD", "no_vat": true, "line_descriptions": ["Konsulting zdalny"], "expected_treatment": "import_uslug", "expected_article_refs": ["art. 28b ust. 1"]}
+{"id": "de-goods", "seller_country": "DE", "currency": "EUR", "no_vat": true, "line_descriptions": ["Dostawa podzespolow elektronicznych"], "expected_treatment": "wnt", "expected_article_refs": ["art. 9 ust. 1"]}
+{"id": "cn-hardware", "seller_country": "CN", "currency": "USD", "no_vat": true, "line_descriptions": ["Import sprzetu - partia 100 szt"], "expected_treatment": "import_towarow", "expected_article_refs": ["art. 2 pkt 7"]}
+{"id": "fr-services", "seller_country": "FR", "currency": "EUR", "no_vat": true, "line_descriptions": ["Uslugi marketingowe"], "expected_treatment": "import_uslug", "expected_article_refs": ["art. 28b ust. 1"]}
+{"id": "ie-cloud", "seller_country": "IE", "currency": "EUR", "no_vat": true, "line_descriptions": ["Hosting w chmurze"], "expected_treatment": "import_uslug", "expected_article_refs": ["art. 28b ust. 1"]}
