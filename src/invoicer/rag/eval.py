@@ -5,7 +5,9 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from invoicer.models import Invoice, LineItem, Party
+from invoicer.graph.nodes import _span_supported
+from invoicer.models import Citation, Invoice, LineItem, Party
+from invoicer.rag.models import RetrievedChunk
 
 
 def recall_at_k(retrieved_refs: list[str], expected_refs: set[str], k: int) -> float:
@@ -65,3 +67,16 @@ def build_invoice_from_case(case: dict) -> Invoice:
         total_vat=total_vat,
         total_gross=total_net + total_vat,
     )
+
+
+def faithfulness_rate(citations: list[Citation], context: list[RetrievedChunk]) -> float:
+    """Ulamek cytatow, ktorych quoted_span jest faktycznie zawarty w cytowanym zrodle."""
+    if not citations:
+        return 0.0
+    by_ref = {(c.source_id, c.article_ref): c.text for c in context}
+    supported = sum(
+        1
+        for cit in citations
+        if _span_supported(cit.quoted_span, by_ref.get((cit.source_id, cit.article_ref), ""))
+    )
+    return supported / len(citations)

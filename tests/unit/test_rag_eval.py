@@ -1,4 +1,6 @@
-from invoicer.rag.eval import mean, recall_at_k, reciprocal_rank
+from invoicer.models import Citation
+from invoicer.rag.eval import faithfulness_rate, mean, recall_at_k, reciprocal_rank
+from invoicer.rag.models import RetrievedChunk
 
 
 def test_recall_at_k_full_and_partial():
@@ -20,3 +22,23 @@ def test_reciprocal_rank():
 def test_mean():
     assert mean([1.0, 0.0, 0.5]) == 0.5
     assert mean([]) == 0.0
+
+
+_CHUNK = RetrievedChunk(
+    source_id="s",
+    article_ref="a",
+    title="t",
+    url="u",
+    text="Miejscem swiadczenia uslug jest siedziba uslugobiorcy.",
+)
+
+
+def test_faithfulness_rate_counts_supported_citations():
+    supported = Citation(source_id="s", article_ref="a", quoted_span="Miejscem swiadczenia uslug")
+    fabricated = Citation(source_id="s", article_ref="a", quoted_span="zdanie spoza zrodla")
+    rate = faithfulness_rate([supported, fabricated], [_CHUNK])
+    assert rate == 0.5
+
+
+def test_faithfulness_rate_no_citations_is_zero():
+    assert faithfulness_rate([], [_CHUNK]) == 0.0
