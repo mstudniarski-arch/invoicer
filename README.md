@@ -17,10 +17,12 @@ flowchart LR
     A[fetch_email] --> B["extract<br/>(Claude vision)"]
     B --> C["validate<br/>(NIP · sums · duplicates)"]
     C --> D{classify}
-    D -->|foreign| E["reason_exception<br/>(LLM judge)"]
     D -->|domestic PL| F["human_review<br/>(interrupt)"]
-    E --> F
-    F -->|approve| G["book<br/>(Subiekt mock + ledger)"]
+    D -->|foreign| R["retrieve_legal_context<br/>(pgvector + Voyage rerank)"]
+    R --> E["reason_exception<br/>(grounded, cited)"]
+    E --> V["verify_grounding<br/>(faithfulness + abstain)"]
+    V --> F
+    F -->|approve| G["book<br/>(Fakturownia / mock + ledger)"]
     F -->|reject| H[end]
 ```
 
@@ -39,6 +41,16 @@ flowchart LR
 - **Security-first.** Prompt-injection defense (the document rides as a separate *data* block, never as instructions; structured output; the human gate authorizes the only side effect). The exception-reasoning step receives **only an allow-listed summary** — no buyer PII or addresses leave the process.
 - **CI-testable LLM integration.** The LLM is injected behind a port, so the whole pipeline runs deterministically against a fake in CI; the real Anthropic API is exercised by a single **live-gated** smoke test that skips without a key.
 
+### Legal-grounded corrective RAG
+
+Foreign-invoice tax reasoning is **grounded in real Polish VAT law**, not the model's memory: the
+agent retrieves the relevant provisions (`art. 28b`, `art. 17` reverse charge, WNT, import) from a
+**pgvector** store (embeddings + reranking via **Voyage AI**), generates a classification that
+**cites its legal basis**, then a **faithfulness check** verifies each citation is actually supported
+by the source. When grounding is weak or unsupported, the agent **abstains** — it caps its confidence
+and flags the human, never auto-booking. Retrieval quality, faithfulness, and with/without-RAG
+treatment accuracy are measured in [`docs/evals/legal-rag-report.md`](docs/evals/legal-rag-report.md).
+
 ## Architecture
 
 Ports-and-adapters around a LangGraph state machine — the core depends only on protocols, so I/O is swappable:
@@ -50,6 +62,8 @@ Ports-and-adapters around a LangGraph state machine — the core depends only on
 | `ExceptionReasoner` | `IdentityReasoner` / `StubExceptionReasoner` | **`ClaudeExceptionReasoner`** ✅ |
 | `AccountingSink` | `MockSubiektSink` (offline/demo) | **`FakturowniaSink`** ✅ (REST, cost invoice) |
 | `HumanReview` | CLI (`process_document`) | Streamlit *(planned)* |
+| `Embedder` | `DeterministicEmbedder` (CI) | **`VoyageEmbedder`** ✅ (`voyage-3-large`) |
+| `LegalKnowledgeStore` | `InMemoryLegalStore` (CI) | **`PgVectorLegalStore`** ✅ (pgvector + Voyage rerank) |
 
 Swapping the stub extractor for real Claude vision is a one-line change — the graph, state, and nodes are untouched:
 
@@ -106,6 +120,10 @@ fly launch --copy-config --no-deploy
 # 3) Volume for /data (region matching fly.toml, e.g. waw)
 fly volumes create invoicer_data --region waw --size 1
 
+# Postgres + pgvector dla legal-grounding RAG
+fly postgres create --name invoicer-db --region ams
+fly postgres attach invoicer-db   # ustawia sekret DATABASE_URL
+
 # 4) Secrets (all in one shot)
 fly secrets set \
   ANTHROPIC_API_KEY="..." \
@@ -116,7 +134,9 @@ fly secrets set \
   FAKTUROWNIA_API_TOKEN="..." \
   FAKTUROWNIA_DOMAIN="mstudniarski" \
   GMAIL_SENDER_FILTER="m.studniarski@gmail.com" \
-  INVOICER_SINK="fakturownia"
+  INVOICER_SINK="fakturownia" \
+  VOYAGE_API_KEY="..." \
+  DATABASE_URL="postgres://..."
 
 # 5) Gmail token (headless): encode the local token.json into a secret
 fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"

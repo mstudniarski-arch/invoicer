@@ -6,6 +6,7 @@ Uruchom:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from invoicer.adapters.pgvector_store import PgVectorLegalStore
@@ -17,6 +18,9 @@ _LEGAL_DIR = Path(__file__).resolve().parents[1] / "data" / "legal"
 
 
 def main() -> None:
+    if not os.getenv("DATABASE_URL"):
+        print("DATABASE_URL nieustawiony — pomijam ingest korpusu (brak pgvector).")
+        return
     chunks = load_corpus(_LEGAL_DIR)
     embedder = VoyageEmbedder()
     store = PgVectorLegalStore(embedder)
