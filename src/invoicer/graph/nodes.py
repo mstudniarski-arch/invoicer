@@ -245,3 +245,52 @@ def route_after_classify(state: InvoiceState) -> str:
     if state["classification"].country_bucket == CountryBucket.PL:
         return "human_review"
     return "reason_exception"
+
+
+def _normalize(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _span_supported(span: str, source_text: str) -> bool:
+    return _normalize(span) in _normalize(source_text)
+
+
+def make_verify_grounding_node():
+    """Wezel `verify_grounding`: deterministyczny faithfulness-check cytatow (span-containment).
+
+    Cytat niepoparty zrodlem (lub brak cytatow) -> grounding_status=unsupported + cap pewnosci
+    + flaga do czlowieka. Abstention (weak) przepuszczamy bez zmian. LLM-entailment: Plan 03.
+    """
+
+    def verify_grounding(state: InvoiceState) -> dict:
+        classification = state["classification"]
+        if classification.grounding_status == GroundingStatus.WEAK:
+            return {"classification": classification}  # abstention juz ustawione w reason_exception
+        by_ref = {(c.source_id, c.article_ref): c.text for c in state.get("legal_context", [])}
+        unsupported = [
+            cit.article_ref
+            for cit in classification.citations
+            if not _span_supported(
+                cit.quoted_span, by_ref.get((cit.source_id, cit.article_ref), "")
+            )
+        ]
+        if not classification.citations or unsupported:
+            detail = ", ".join(unsupported) if unsupported else "brak cytatow"
+            updated = classification.model_copy(
+                update={
+                    "grounding_status": GroundingStatus.UNSUPPORTED,
+                    "confidence": min(classification.confidence, CONFIDENCE_CAP_UNSUPPORTED),
+                    "human_must_confirm": [
+                        *classification.human_must_confirm,
+                        f"cytaty niepotwierdzone w zrodle: {detail}",
+                    ],
+                }
+            )
+            return {"classification": updated}
+        return {
+            "classification": classification.model_copy(
+                update={"grounding_status": GroundingStatus.GROUNDED}
+            )
+        }
+
+    return verify_grounding
