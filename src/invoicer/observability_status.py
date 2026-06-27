@@ -30,9 +30,11 @@ def pipeline_status(
     registry: _Registry,
     *,
     phone: str | None = None,
+    sink: str | None = None,
 ) -> dict:
-    """Agreguje stan dla GET /status: koszt/latencja LLM + liczniki + pending."""
+    """Agreguje stan dla GET /status: aktywny sink + koszt/latencja LLM + liczniki + pending."""
     return {
+        "sink": sink,
         "llm": metrics.totals(),
         "pipeline": {
             "processed": counters.processed,

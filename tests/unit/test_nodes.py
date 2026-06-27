@@ -185,12 +185,17 @@ def test_book_node_posts_and_records_ledger(tmp_path):
     node = make_book_node(MockSubiektSink(), ledger, clock=lambda: "2026-06-01T10:00:00")
     inv = _invoice()
     classification = Classification(treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL)
-    update = node({"invoice": inv, "classification": classification})
+    cfg = {"configurable": {"thread_id": "t-book"}}
+    update = node({"invoice": inv, "classification": classification}, cfg)
     assert update["booking"].booking_id == "MOCK-FV/1"
     assert ledger.is_duplicate(inv.number, inv.seller.nip, inv.seller.name) is True
     entry = ledger.entries()[0]
     assert entry.booked_at == "2026-06-01T10:00:00"
     assert entry.booking_id == "MOCK-FV/1"
+    # provenance do "co/gdzie/dlaczego" — sink/treatment/thread_id zapisane w ledgerze
+    assert entry.sink == "mock-subiekt"
+    assert entry.treatment == "krajowa"
+    assert entry.thread_id == "t-book"
 
 
 def test_route_after_review_edit_goes_to_end():
@@ -213,7 +218,7 @@ def test_book_node_blocks_double_booking(tmp_path):
     node = make_book_node(MockSubiektSink(), ledger, clock=lambda: "2026-06-01T10:00:00")
     classification = Classification(treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL)
     with pytest.raises(RuntimeError):
-        node({"invoice": inv, "classification": classification})
+        node({"invoice": inv, "classification": classification}, {"configurable": {}})
 
 
 def test_route_after_classify_pl_goes_to_human_review():

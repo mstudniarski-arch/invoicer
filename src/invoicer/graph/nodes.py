@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from invoicer.booking import invoice_to_booking_payload
@@ -191,14 +192,16 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
     """Wezel `book`: mapuje na dekret, ksieguje (sink) i dopisuje do ledger (audyt + duplikaty)."""
     clock = clock or (lambda: datetime.now().isoformat(timespec="seconds"))
 
-    def book(state: InvoiceState) -> dict:
+    def book(state: InvoiceState, config: RunnableConfig) -> dict:
         invoice = state["invoice"]
         if ledger.is_duplicate(invoice.number, invoice.seller.nip, invoice.seller.name):
             raise RuntimeError(
                 f"Faktura {invoice.number} jest juz zaksiegowana — przerwano podwojne ksiegowanie"
             )
         classification = state["classification"]
-        payload = invoice_to_booking_payload(invoice, treatment=str(classification.treatment))
+        treatment = str(classification.treatment)
+        thread_id = (config or {}).get("configurable", {}).get("thread_id", "")
+        payload = invoice_to_booking_payload(invoice, treatment=treatment)
         result = sink.post(payload)
         ledger.append(
             LedgerEntry(
@@ -208,7 +211,18 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
                 total_gross=str(invoice.total_gross),
                 booking_id=result.booking_id,
                 booked_at=clock(),
+                sink=result.sink,
+                treatment=treatment,
+                thread_id=thread_id,
             )
+        )
+        _logger.info(
+            "booked invoice=%s sink=%s booking_id=%s treatment=%s thread_id=%s",
+            invoice.number,
+            result.sink,
+            result.booking_id,
+            treatment,
+            thread_id,
         )
         return {"booking": result}
 

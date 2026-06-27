@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from datetime import UTC, datetime
@@ -34,6 +35,8 @@ from invoicer.ports import EmailSource, InvoiceDetector
 from invoicer.rag.models import RetrievedChunk
 from invoicer.state import InvoiceState
 
+_logger = logging.getLogger("invoicer.runner")
+
 # Typy wstawiane do stanu grafu (InvoiceState) — jawnie rejestrowane w serializerze
 # checkpointu LangGraph. Bez tej allowlisty default to "warn-but-allow"; w przyszlej
 # wersji LangGraph (LANGGRAPH_STRICT_MSGPACK=true) nieuznane typy zostana ZABLOKOWANE
@@ -56,9 +59,23 @@ _CHECKPOINT_ALLOWED_TYPES = (
 )
 
 
+def _run_config(thread_id: str) -> dict:
+    """Config przebiegu: thread_id (klucz checkpointera) + nazwa/tagi/metadane do tracingu.
+
+    run_name/tags/metadata sa uzywane przez LangSmith (gdy wlaczony) do nazwania i odfiltrowania
+    przebiegu po fakturze; przy wylaczonym tracingu sa po prostu ignorowane.
+    """
+    return {
+        "configurable": {"thread_id": thread_id},
+        "run_name": f"invoice-{thread_id}",
+        "tags": ["invoicer"],
+        "metadata": {"thread_id": thread_id},
+    }
+
+
 def start_document(graph, document: InvoiceDocument, *, thread_id: str) -> dict | None:
     """Uruchamia dokument w grafie do bramki human_review; zwraca payload interrupt (lub None)."""
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _run_config(thread_id)
     result = graph.invoke({"document": document, "errors": []}, config)
     interrupts = result.get("__interrupt__")
     return interrupts[0].value if interrupts else None
@@ -66,7 +83,7 @@ def start_document(graph, document: InvoiceDocument, *, thread_id: str) -> dict 
 
 def resume_document(graph, *, thread_id: str, decision: str) -> InvoiceState:
     """Wznawia graf po decyzji czlowieka (approve/reject/edit)."""
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _run_config(thread_id)
     return graph.invoke(Command(resume=decision), config)
 
 
@@ -132,12 +149,20 @@ def build_legal_store():
     return InMemoryLegalStore(DeterministicEmbedder())
 
 
+def active_sink_name() -> str:
+    """Nazwa aktywnego AccountingSink wg env (bez budowania) — do logu startu i /status."""
+    if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
+        return "fakturownia"
+    return "mock-subiekt"
+
+
 def build_sink():
     """AccountingSink wg env: FakturowniaSink gdy INVOICER_SINK=fakturownia, inaczej MockSubiekt.
 
     Fakturownia ksieguje fakture jako KOSZT (income=0) — widoczne w .../invoices?income=no.
-    Wymaga FAKTUROWNIA_API_TOKEN + FAKTUROWNIA_DOMAIN.
+    Wymaga FAKTUROWNIA_API_TOKEN + FAKTUROWNIA_DOMAIN. Loguje wybor (provenance konfiguracji).
     """
+    _logger.info("AccountingSink aktywny: %s", active_sink_name())
     if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
         from invoicer.adapters.fakturownia import build_fakturownia_sink
 
