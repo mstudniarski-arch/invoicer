@@ -1,3 +1,9 @@
 # Legal-Grounded RAG — Eval Report
 
-_Uruchom `scripts/run_evals.py` (z VOYAGE_API_KEY + DATABASE_URL + ANTHROPIC_API_KEY), aby wygenerować metryki: Recall@k, MRR, faithfulness, trafność traktowania z/bez RAG._
+- Generated: 2026-06-27
+- Cases: **6** (golden dataset, `data/evals/legal_cases.jsonl`)
+- Store: **pgvector** · Embeddings: **voyage-3-large** · Reranker: **rerank-2.5**
+- **Recall@5: 1.00**
+- **MRR: 0.68**
+
+_Retrieval mierzony na `PgVectorLegalStore` (Voyage embed + rerank). Faithfulness + ablacja z/bez RAG: do uzupelnienia._
