@@ -20,6 +20,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 # 2) App source
 COPY src ./src
 
+# 2b) Korpus prawny + skrypty (release-command ingest do pgvector)
+COPY data ./data
+COPY scripts ./scripts
+
 # 3) Runtime
 EXPOSE 8080
 # --no-sync: uzyj gotowego .venv z warstwy build; NIE synchronizuj dev-deps przy starcie (offline-safe)

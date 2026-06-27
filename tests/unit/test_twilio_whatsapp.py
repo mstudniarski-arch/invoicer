@@ -1,4 +1,17 @@
-from invoicer.adapters.twilio_whatsapp import TwilioError, TwilioWhatsAppChannel
+from invoicer.adapters.twilio_whatsapp import (
+    TwilioError,
+    TwilioUndelivered,
+    TwilioWhatsAppChannel,
+)
+
+_PAYLOAD = {
+    "number": "FV/1",
+    "seller": "ACME",
+    "seller_nip": "5260001246",
+    "total_gross": "1230.00",
+    "currency": "PLN",
+    "treatment": "krajowa",
+}
 
 
 class _FakeResponse:
@@ -15,6 +28,24 @@ class _FakeHttp:
     def post(self, url, *, data, auth):
         self.calls.append((url, data, auth))
         return self._response
+
+
+class _SeqHttp:
+    """post() -> jedna odpowiedz; get() -> kolejne statusy z listy (poll dostarczenia)."""
+
+    def __init__(self, post_resp: _FakeResponse, get_resps: list[_FakeResponse]) -> None:
+        self._post = post_resp
+        self._gets = list(get_resps)
+        self.posts: list[tuple] = []
+        self.gets: list[str] = []
+
+    def post(self, url, *, data, auth):
+        self.posts.append((url, data, auth))
+        return self._post
+
+    def get(self, url, *, auth):
+        self.gets.append(url)
+        return self._gets.pop(0)
 
 
 def _channel(http: _FakeHttp) -> TwilioWhatsAppChannel:
@@ -78,3 +109,45 @@ def test_request_approval_error_does_not_leak_sid():
         assert sid not in str(exc)
         return
     raise AssertionError("oczekiwano TwilioError")
+
+
+def _noop_sleep(_seconds: float) -> None:
+    return None
+
+
+def test_request_approval_raises_when_whatsapp_undelivered():
+    # Twilio przyjmuje (201, status=queued), ale WhatsApp NIE dostarcza (63016 = poza 24h oknem).
+    # Bramka MUSI to wykryc — inaczej flow falszywie loguje "wyslano" i czeka 15 min na odpowiedz.
+    post = _FakeResponse(201, text='{"sid":"SM123","status":"queued","error_code":null}')
+    poll = _FakeResponse(200, text='{"sid":"SM123","status":"undelivered","error_code":63016}')
+    http = _SeqHttp(post, [poll])
+    channel = TwilioWhatsAppChannel(
+        http,
+        account_sid="ACx",
+        auth_token="tok",
+        from_whatsapp="whatsapp:+1415",
+        to_whatsapp="whatsapp:+48999",
+    )
+    try:
+        channel.request_approval(_PAYLOAD, poll_interval=0.0, sleep=_noop_sleep)
+    except TwilioUndelivered as exc:
+        assert exc.error_code == 63016
+        assert "63016" in str(exc)
+        assert http.gets, "powinno odpytac status wiadomosci po wyslaniu"
+        return
+    raise AssertionError("oczekiwano TwilioUndelivered gdy WhatsApp nie dostarczyl")
+
+
+def test_request_approval_ok_when_delivered():
+    post = _FakeResponse(201, text='{"sid":"SM1","status":"queued","error_code":null}')
+    poll = _FakeResponse(200, text='{"sid":"SM1","status":"delivered","error_code":null}')
+    http = _SeqHttp(post, [poll])
+    channel = TwilioWhatsAppChannel(
+        http,
+        account_sid="ACx",
+        auth_token="tok",
+        from_whatsapp="whatsapp:+1415",
+        to_whatsapp="whatsapp:+48999",
+    )
+    channel.request_approval(_PAYLOAD, poll_interval=0.0, sleep=_noop_sleep)  # nie rzuca
+    assert http.gets, "powinno potwierdzic dostarczenie"

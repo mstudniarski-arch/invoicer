@@ -4,6 +4,7 @@ from typing import Protocol, runtime_checkable
 
 from invoicer.booking import BookingPayload, BookingResult
 from invoicer.models import Classification, Invoice, InvoiceDocument
+from invoicer.rag.models import RetrievedChunk
 
 
 @runtime_checkable
@@ -43,6 +44,34 @@ class InvoiceExtractor(Protocol):
 
 @runtime_checkable
 class ExceptionReasoner(Protocol):
-    """Sedzia-LLM: wzbogaca deterministyczna klasyfikacje faktury zagranicznej."""
+    """Sedzia-LLM: gruntuje klasyfikacje faktury zagranicznej w dostarczonym kontekscie prawnym."""
 
-    def reason(self, invoice: Invoice, base: Classification) -> Classification: ...
+    def reason(
+        self,
+        invoice: Invoice,
+        base: Classification,
+        context: list[RetrievedChunk] | None = None,
+    ) -> Classification: ...
+
+
+@runtime_checkable
+class Embedder(Protocol):
+    """Zamienia tekst na wektory. Rozroznia dokument (ingest) i zapytanie (retrieval)."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
+
+    def embed_query(self, text: str) -> list[float]: ...
+
+
+@runtime_checkable
+class LegalKnowledgeStore(Protocol):
+    """Baza wektorowa przepisow: zwraca k najtrafniejszych fragmentow dla zapytania."""
+
+    def search(self, query: str, k: int = 5) -> list[RetrievedChunk]: ...
+
+
+@runtime_checkable
+class Reranker(Protocol):
+    """Przeszereguj dokumenty wzgledem zapytania. Zwraca (indeks_oryginalny, score) malejaco."""
+
+    def rerank(self, query: str, documents: list[str], top_k: int) -> list[tuple[int, float]]: ...

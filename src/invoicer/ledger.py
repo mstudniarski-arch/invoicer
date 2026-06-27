@@ -14,6 +14,11 @@ class LedgerEntry(BaseModel):
     booking_id: str
     booked_at: str  # ISO-8601, ustawiane przez wolajacego (determinizm)
     seller_nip: str | None = None
+    # Provenance ksiegowania (do odpowiedzi "co/gdzie/dlaczego") — zapisywane, ale POZA hashem
+    # rdzenia finansowego (zgodnosc wstecz ze starymi wpisami; verify_chain dziala bez zmian).
+    sink: str = ""  # docelowy program ksiegowy: "fakturownia" | "mock-subiekt"
+    treatment: str = ""  # traktowanie podatkowe (np. import_uslug)
+    thread_id: str = ""  # klucz przebiegu LangGraph -> replay przez graph.get_state
     prev_hash: str = ""  # entry_hash poprzedniego wpisu (lancuch audytu)
     entry_hash: str = ""  # SHA-256 tresci tego wpisu (z prev_hash)
 

@@ -95,6 +95,20 @@ class TaxTreatment(StrEnum):
     INNE = "inne"
 
 
+class GroundingStatus(StrEnum):
+    GROUNDED = "grounded"
+    WEAK = "weak"
+    UNSUPPORTED = "unsupported"
+
+
+class Citation(BaseModel):
+    """Cytat podstawy prawnej w uzasadnieniu klasyfikacji (sprawdzany w verify_grounding)."""
+
+    source_id: str
+    article_ref: str
+    quoted_span: str
+
+
 class Classification(BaseModel):
     """Proponowane traktowanie podatkowe faktury (potwierdza czlowiek)."""
 
@@ -104,3 +118,5 @@ class Classification(BaseModel):
     rationale_pl: str = ""
     human_must_confirm: list[str] = Field(default_factory=list)
     currency_note: str = ""
+    citations: list[Citation] = Field(default_factory=list)
+    grounding_status: GroundingStatus = GroundingStatus.GROUNDED

@@ -1,12 +1,34 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
 from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.graph.build import build_invoice_graph
 from invoicer.ledger import Ledger
-from invoicer.models import Invoice, InvoiceDocument, LineItem, Party
-from invoicer.runner import build_demo_graph, document_from_upload, resume_document, start_document
+from invoicer.models import (
+    Check,
+    CheckStatus,
+    Citation,
+    Classification,
+    CountryBucket,
+    GroundingStatus,
+    Invoice,
+    InvoiceDocument,
+    LineItem,
+    Party,
+    TaxTreatment,
+    ValidationResult,
+)
+from invoicer.rag.models import RetrievedChunk
+from invoicer.runner import (
+    _CHECKPOINT_ALLOWED_TYPES,
+    build_demo_graph,
+    document_from_upload,
+    resume_document,
+    start_document,
+)
 
 
 def _invoice() -> Invoice:
@@ -160,15 +182,6 @@ def test_request_invoice_approval_registers_and_sends(tmp_path):
 
 
 def _state_with_all_custom_types() -> dict:
-    from invoicer.models import (
-        Check,
-        CheckStatus,
-        Classification,
-        CountryBucket,
-        TaxTreatment,
-        ValidationResult,
-    )
-
     return {
         "document": _doc(),
         "invoice": _invoice(),
@@ -190,8 +203,6 @@ def test_strict_serializer_without_allowlist_loses_custom_types(tmp_path):
     Demonstruje problem, ktory naprawia persistent_checkpointer (LANGGRAPH_STRICT_MSGPACK=true
     w przyszlej wersji LangGraph zablokuje nieuznane typy domyslnie).
     """
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-
     strict = JsonPlusSerializer(allowed_msgpack_modules=None)
     state = _state_with_all_custom_types()
     type_, blob = strict.dumps_typed(state)
@@ -230,7 +241,6 @@ def test_persistent_checkpointer_registers_invoicer_models_in_allowlist(tmp_path
 
 def test_persistent_checkpointer_round_trip_preserves_custom_types(tmp_path):
     """Behavioral sanity: serde z fixem dalej poprawnie round-trip’uje state."""
-    from invoicer.models import Classification, ValidationResult
     from invoicer.runner import persistent_checkpointer
 
     saver = persistent_checkpointer(str(tmp_path / "cp.sqlite"))
@@ -243,3 +253,26 @@ def test_persistent_checkpointer_round_trip_preserves_custom_types(tmp_path):
     assert isinstance(loaded["classification"], Classification)
     assert loaded["invoice"].number == "FV/1"
     assert loaded["validation"].is_duplicate is False
+
+
+def test_rag_types_are_in_checkpoint_allowlist():
+    assert RetrievedChunk in _CHECKPOINT_ALLOWED_TYPES
+    assert Citation in _CHECKPOINT_ALLOWED_TYPES
+    assert GroundingStatus in _CHECKPOINT_ALLOWED_TYPES
+
+
+def test_checkpoint_serde_roundtrips_rag_state():
+    serde = JsonPlusSerializer(allowed_msgpack_modules=_CHECKPOINT_ALLOWED_TYPES)
+    chunk = RetrievedChunk(source_id="s", article_ref="a", title="t", url="u", text="x", score=0.9)
+    classification = Classification(
+        treatment=TaxTreatment.IMPORT_USLUG,
+        country_bucket=CountryBucket.POZA_UE,
+        citations=[Citation(source_id="s", article_ref="a", quoted_span="x")],
+        grounding_status=GroundingStatus.UNSUPPORTED,
+    )
+    state = {"legal_context": [chunk], "classification": classification}
+    restored = serde.loads_typed(serde.dumps_typed(state))
+    assert restored["legal_context"][0] == chunk
+    assert isinstance(restored["legal_context"][0], RetrievedChunk)
+    assert restored["classification"].citations[0].quoted_span == "x"
+    assert restored["classification"].grounding_status == GroundingStatus.UNSUPPORTED

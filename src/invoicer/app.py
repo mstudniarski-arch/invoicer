@@ -15,12 +15,19 @@ from invoicer.approvals import PendingApprovals
 from invoicer.bootstrap import bootstrap_gmail_token
 from invoicer.graph.build import build_invoice_graph
 from invoicer.ledger import Ledger
-from invoicer.observability import LlmMetrics
+from invoicer.observability import LlmMetrics, LlmMetricsCallback
 from invoicer.observability_alerts import format_failure_alert, send_failure_alert
+from invoicer.observability_langsmith import init_langsmith
 from invoicer.observability_sentry import init_sentry
 from invoicer.observability_status import PipelineCounters, pipeline_status
 from invoicer.processed import ProcessedDocuments
-from invoicer.runner import _demo_invoice, persistent_checkpointer
+from invoicer.runner import (
+    _demo_invoice,
+    active_sink_name,
+    build_legal_store,
+    build_sink,
+    persistent_checkpointer,
+)
 from invoicer.scheduler import build_scheduler, run_intake
 from invoicer.security import install_redaction
 from invoicer.webhook import create_inbound_app
@@ -44,23 +51,28 @@ def _settings_from_env() -> AppSettings:
     )
 
 
-def _build_real_graph(settings: AppSettings, checkpointer):
-    """Realne adaptery: Claude + Fakturownia (lub MockSubiekt) + ledger na wolumenie."""
+_METRICS_MODEL = "claude-sonnet-4-6"  # model adapterow Claude (pricing dla LlmMetricsCallback)
+
+
+def _real_claude_adapters(metrics: LlmMetrics):
+    """(extractor, reasoner) Claude z LlmMetricsCallback — by /status mial realny koszt."""
     from invoicer.adapters.claude_extractor import ClaudeVisionExtractor
     from invoicer.adapters.claude_reasoner import ClaudeExceptionReasoner
 
-    if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
-        from invoicer.adapters.fakturownia import build_fakturownia_sink
+    cb = LlmMetricsCallback(metrics, model=_METRICS_MODEL)
+    return ClaudeVisionExtractor(callbacks=[cb]), ClaudeExceptionReasoner(callbacks=[cb])
 
-        sink = build_fakturownia_sink()
-    else:
-        sink = MockSubiektSink()
+
+def _build_real_graph(settings: AppSettings, checkpointer, metrics: LlmMetrics):
+    """Realne adaptery: Claude (z metrykami) + Fakturownia/MockSubiekt + ledger na wolumenie."""
+    extractor, reasoner = _real_claude_adapters(metrics)
     return build_invoice_graph(
-        extractor=ClaudeVisionExtractor(),
-        reasoner=ClaudeExceptionReasoner(),
+        extractor=extractor,
+        reasoner=reasoner,
         ledger=Ledger(settings.data_dir / "ledger.jsonl"),
-        sink=sink,
+        sink=build_sink(),
         checkpointer=checkpointer,
+        store=build_legal_store(),
     )
 
 
@@ -81,12 +93,13 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    install_redaction(logging.getLogger("invoicer"))
+    install_redaction()  # root: redaguje takze uvicorn/httpx/third-party, nie tylko invoicer.*
 
     channel = None
     on_resume_failure = None
     if not settings.test_mode:
         init_sentry(os.getenv("SENTRY_DSN"))
+        init_langsmith()  # tracing per-faktura w LangSmith gdy ustawiony LANGSMITH_API_KEY
         bootstrap_gmail_token("GMAIL_TOKEN_B64", settings.data_dir / "token.json")
         from invoicer.adapters.twilio_whatsapp import build_twilio_whatsapp_channel
 
@@ -106,7 +119,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     graph = (
         _build_test_graph(settings, checkpointer)
         if settings.test_mode
-        else _build_real_graph(settings, checkpointer)
+        else _build_real_graph(settings, checkpointer, metrics)
     )
 
     # webhook (reuzycie logiki Planu B) + dodatkowe endpointy
@@ -118,7 +131,9 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
 
     @app.get("/status")
     def status() -> dict:
-        return pipeline_status(metrics, counters, registry, phone=settings.approver_phone)
+        return pipeline_status(
+            metrics, counters, registry, phone=settings.approver_phone, sink=active_sink_name()
+        )
 
     if settings.test_mode:
         return app
@@ -136,7 +151,9 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
                 channel,
                 registry,
                 GmailAdapter(service),
-                ClaudeInvoiceDetector(),
+                ClaudeInvoiceDetector(
+                    callbacks=[LlmMetricsCallback(metrics, model=_METRICS_MODEL)]
+                ),
                 sender=settings.gmail_sender,
                 phone=settings.approver_phone,
                 counters=counters,

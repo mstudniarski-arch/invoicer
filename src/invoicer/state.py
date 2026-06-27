@@ -7,6 +7,7 @@ from typing_extensions import TypedDict
 
 from invoicer.booking import BookingResult
 from invoicer.models import Classification, Invoice, InvoiceDocument, ValidationResult
+from invoicer.rag.models import RetrievedChunk
 
 
 class InvoiceState(TypedDict, total=False):
@@ -20,3 +21,4 @@ class InvoiceState(TypedDict, total=False):
     booking: BookingResult | None
     extract_attempts: int
     errors: Annotated[list[str], operator.add]
+    legal_context: list[RetrievedChunk]

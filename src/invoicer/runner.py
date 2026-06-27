@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from datetime import UTC, datetime
@@ -19,8 +20,10 @@ from invoicer.ledger import Ledger
 from invoicer.models import (
     Check,
     CheckStatus,
+    Citation,
     Classification,
     CountryBucket,
+    GroundingStatus,
     Invoice,
     InvoiceDocument,
     LineItem,
@@ -29,7 +32,10 @@ from invoicer.models import (
     ValidationResult,
 )
 from invoicer.ports import EmailSource, InvoiceDetector
+from invoicer.rag.models import RetrievedChunk
 from invoicer.state import InvoiceState
+
+_logger = logging.getLogger("invoicer.runner")
 
 # Typy wstawiane do stanu grafu (InvoiceState) — jawnie rejestrowane w serializerze
 # checkpointu LangGraph. Bez tej allowlisty default to "warn-but-allow"; w przyszlej
@@ -47,12 +53,29 @@ _CHECKPOINT_ALLOWED_TYPES = (
     CountryBucket,
     TaxTreatment,
     BookingResult,
+    Citation,
+    GroundingStatus,
+    RetrievedChunk,
 )
+
+
+def _run_config(thread_id: str) -> dict:
+    """Config przebiegu: thread_id (klucz checkpointera) + nazwa/tagi/metadane do tracingu.
+
+    run_name/tags/metadata sa uzywane przez LangSmith (gdy wlaczony) do nazwania i odfiltrowania
+    przebiegu po fakturze; przy wylaczonym tracingu sa po prostu ignorowane.
+    """
+    return {
+        "configurable": {"thread_id": thread_id},
+        "run_name": f"invoice-{thread_id}",
+        "tags": ["invoicer"],
+        "metadata": {"thread_id": thread_id},
+    }
 
 
 def start_document(graph, document: InvoiceDocument, *, thread_id: str) -> dict | None:
     """Uruchamia dokument w grafie do bramki human_review; zwraca payload interrupt (lub None)."""
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _run_config(thread_id)
     result = graph.invoke({"document": document, "errors": []}, config)
     interrupts = result.get("__interrupt__")
     return interrupts[0].value if interrupts else None
@@ -60,7 +83,7 @@ def start_document(graph, document: InvoiceDocument, *, thread_id: str) -> dict 
 
 def resume_document(graph, *, thread_id: str, decision: str) -> InvoiceState:
     """Wznawia graf po decyzji czlowieka (approve/reject/edit)."""
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _run_config(thread_id)
     return graph.invoke(Command(resume=decision), config)
 
 
@@ -109,6 +132,44 @@ def fetch_invoice_documents(
     return [doc for doc in source.fetch(sender) if detector.is_invoice(doc)]
 
 
+def build_legal_store():
+    """Realny PgVectorLegalStore (Voyage + rerank) gdy DATABASE_URL; inaczej pusty store.
+
+    Pusty InMemoryLegalStore => brak kontekstu => abstention (graf dziala bez bazy/kluczy).
+    """
+    if os.getenv("DATABASE_URL"):
+        from invoicer.adapters.pgvector_store import PgVectorLegalStore
+        from invoicer.adapters.voyage_embedder import VoyageEmbedder
+        from invoicer.adapters.voyage_reranker import VoyageReranker
+
+        return PgVectorLegalStore(VoyageEmbedder(), reranker=VoyageReranker())
+    from invoicer.adapters.fake_embedder import DeterministicEmbedder
+    from invoicer.adapters.in_memory_legal_store import InMemoryLegalStore
+
+    return InMemoryLegalStore(DeterministicEmbedder())
+
+
+def active_sink_name() -> str:
+    """Nazwa aktywnego AccountingSink wg env (bez budowania) — do logu startu i /status."""
+    if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
+        return "fakturownia"
+    return "mock-subiekt"
+
+
+def build_sink():
+    """AccountingSink wg env: FakturowniaSink gdy INVOICER_SINK=fakturownia, inaczej MockSubiekt.
+
+    Fakturownia ksieguje fakture jako KOSZT (income=0) — widoczne w .../invoices?income=no.
+    Wymaga FAKTUROWNIA_API_TOKEN + FAKTUROWNIA_DOMAIN. Loguje wybor (provenance konfiguracji).
+    """
+    _logger.info("AccountingSink aktywny: %s", active_sink_name())
+    if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
+        from invoicer.adapters.fakturownia import build_fakturownia_sink
+
+        return build_fakturownia_sink()
+    return MockSubiektSink()
+
+
 def build_demo_graph(*, ledger_path: Path):
     """Buduje graf demo: realny Claude gdy ANTHROPIC_API_KEY, inaczej offline (stub)."""
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -121,7 +182,11 @@ def build_demo_graph(*, ledger_path: Path):
         extractor = StubExtractor(_demo_invoice())
         reasoner = IdentityReasoner()
     return build_invoice_graph(
-        extractor=extractor, reasoner=reasoner, ledger=Ledger(ledger_path), sink=MockSubiektSink()
+        extractor=extractor,
+        reasoner=reasoner,
+        ledger=Ledger(ledger_path),
+        sink=build_sink(),
+        store=build_legal_store(),
     )
 
 

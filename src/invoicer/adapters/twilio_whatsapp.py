@@ -1,15 +1,34 @@
 from __future__ import annotations
 
+import json
 import os
 import re
+import time
 
 from invoicer.security import redact_pii
 
 _TWILIO_SID = re.compile(r"\bAC[0-9a-fA-F]{10,32}\b")
 
+# Statusy wiadomosci Twilio (https://www.twilio.com/docs/messaging/api/message-resource#message-status-values)
+_DELIVERED = {"delivered", "read"}
+_FAILED = {"failed", "undelivered"}
+
 
 class TwilioError(RuntimeError):
     """Blad wysylki przez Twilio (status != 2xx). Komunikat ma PII zredagowane."""
+
+
+class TwilioUndelivered(TwilioError):
+    """Twilio PRZYJAL wiadomosc (201), ale WhatsApp jej NIE dostarczyl.
+
+    Najczestsza przyczyna: error_code 63016 — wiadomosc free-form poza 24h oknem WhatsApp.
+    Approver musi najpierw napisac cokolwiek do numeru sandbox, by otworzyc okno na nowo.
+    """
+
+    def __init__(self, status: str | None, error_code, message: str) -> None:
+        self.status = status
+        self.error_code = error_code
+        super().__init__(message)
 
 
 def format_approval_message(payload: dict) -> str:
@@ -24,10 +43,17 @@ def format_approval_message(payload: dict) -> str:
     )
 
 
+def _redact_sid(text: str, sid: str) -> str:
+    """Redaguje PII oraz Twilio SID (z url-a/body) zanim komunikat trafi do logow/Sentry."""
+    snippet = _TWILIO_SID.sub("[REDACTED_SID]", redact_pii(str(text)))[:500]
+    return snippet.replace(sid, "[REDACTED_SID]") if sid in snippet else snippet
+
+
 class TwilioWhatsAppChannel:
     """ApprovalChannel: wysyla request akceptacji jako wiadomosc WhatsApp przez Twilio REST.
 
-    `client` wstrzykiwany (CI: fake; live: httpx.Client) z `post(url, *, data, auth) -> resp`.
+    `client` wstrzykiwany (CI: fake; live: httpx.Client) z `post(url, *, data, auth) -> resp`
+    oraz `get(url, *, auth) -> resp` (poll statusu dostarczenia).
     `auth_token` nigdy nie trafia do logow; bledy idą przez redact_pii.
     """
 
@@ -46,25 +72,74 @@ class TwilioWhatsAppChannel:
         self._from = from_whatsapp
         self._to = to_whatsapp
 
-    def request_approval(self, payload: dict) -> None:
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{self._sid}/Messages.json"
-        data = {"From": self._from, "To": self._to, "Body": format_approval_message(payload)}
-        resp = self._client.post(url, data=data, auth=(self._sid, self._token))
+    def _messages_url(self) -> str:
+        return f"https://api.twilio.com/2010-04-01/Accounts/{self._sid}/Messages.json"
+
+    def _post_message(self, body: str) -> str | None:
+        """Wysyla wiadomosc; zwraca message SID (do pollingu statusu) lub None gdy brak w body."""
+        data = {"From": self._from, "To": self._to, "Body": body}
+        resp = self._client.post(self._messages_url(), data=data, auth=(self._sid, self._token))
         if not 200 <= resp.status_code < 300:
-            # url zawiera SID — NIE wkladamy go do bledu (redact_pii i tak redaguje SID)
-            snippet = redact_pii(str(resp.text))[:500]
-            raise TwilioError(f"Twilio POST -> {resp.status_code}: {snippet}")
+            raise TwilioError(
+                f"Twilio POST -> {resp.status_code}: {_redact_sid(resp.text, self._sid)}"
+            )
+        try:
+            return json.loads(resp.text or "{}").get("sid")
+        except ValueError:
+            return None
+
+    def _confirm_delivery(self, sid: str, *, attempts: int, interval: float, sleep) -> None:
+        """Odpytuje Twilio o status wiadomosci `sid` az do stanu terminalnego.
+
+        201 z POST oznacza tylko 'przyjete do kolejki' — realne dostarczenie WhatsApp jest
+        asynchroniczne. Bez tego sprawdzenia flow falszywie loguje "wyslano" i czeka 15 min.
+        Rzuca TwilioUndelivered gdy status=failed/undelivered (np. 63016 = poza 24h oknem).
+        Po wyczerpaniu prob bez stanu terminalnego — wraca cicho (nie blokuje na queued/sent).
+        """
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{self._sid}/Messages/{sid}.json"
+        for attempt in range(attempts):
+            resp = self._client.get(url, auth=(self._sid, self._token))
+            if not 200 <= resp.status_code < 300:
+                return  # nie potwierdzilismy, ale brak odczytu statusu nie jest bledem dostarczenia
+            try:
+                body = json.loads(resp.text or "{}")
+            except ValueError:
+                return
+            status = body.get("status")
+            error_code = body.get("error_code")
+            if status in _FAILED or error_code:
+                hint = (
+                    " — wiadomosc poza 24h oknem WhatsApp; approver musi najpierw napisac "
+                    "cokolwiek do numeru sandbox, aby otworzyc okno"
+                    if str(error_code) == "63016"
+                    else ""
+                )
+                raise TwilioUndelivered(
+                    status,
+                    error_code,
+                    f"WhatsApp niedostarczony: status={status} error_code={error_code}{hint}",
+                )
+            if status in _DELIVERED:
+                return
+            if attempt < attempts - 1:
+                sleep(interval)
+
+    def request_approval(
+        self,
+        payload: dict,
+        *,
+        confirm_delivery: bool = True,
+        poll_attempts: int = 6,
+        poll_interval: float = 2.0,
+        sleep=time.sleep,
+    ) -> None:
+        sid = self._post_message(format_approval_message(payload))
+        if confirm_delivery and sid:
+            self._confirm_delivery(sid, attempts=poll_attempts, interval=poll_interval, sleep=sleep)
 
     def notify(self, text: str) -> None:
         """Wysyla dowolna wiadomosc WhatsApp (alert/notyfikacja) do skonfigurowanego approvera."""
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{self._sid}/Messages.json"
-        data = {"From": self._from, "To": self._to, "Body": text}
-        resp = self._client.post(url, data=data, auth=(self._sid, self._token))
-        if not 200 <= resp.status_code < 300:
-            snippet = _TWILIO_SID.sub("[REDACTED_SID]", redact_pii(str(resp.text)))[:500]
-            if self._sid in snippet:
-                snippet = snippet.replace(self._sid, "[REDACTED_SID]")
-            raise TwilioError(f"Twilio POST -> {resp.status_code}: {snippet}")
+        self._post_message(text)
 
 
 def build_twilio_whatsapp_channel() -> TwilioWhatsAppChannel:

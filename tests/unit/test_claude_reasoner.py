@@ -7,6 +7,7 @@ from invoicer.adapters.claude_reasoner import (
     build_reason_message,
 )
 from invoicer.models import (
+    Citation,
     Classification,
     CountryBucket,
     Invoice,
@@ -15,6 +16,7 @@ from invoicer.models import (
     TaxTreatment,
 )
 from invoicer.ports import ExceptionReasoner
+from invoicer.rag.models import RetrievedChunk
 from invoicer.reasoning import ClassificationJudgment
 
 
@@ -115,3 +117,52 @@ def test_reason_merges_judgment_with_deterministic_bucket():
 def test_default_construction_does_not_raise():
     reasoner = ClaudeExceptionReasoner()
     assert reasoner._model == "claude-sonnet-4-6"
+
+
+def _ctx():
+    return [
+        RetrievedChunk(
+            source_id="vat-art-28b",
+            article_ref="art. 28b ust. 1",
+            title="VAT 28b",
+            url="u",
+            text="Miejscem swiadczenia uslug na rzecz podatnika jest siedziba uslugobiorcy.",
+        )
+    ]
+
+
+def test_grounded_message_includes_context_and_citation_instruction():
+    text = build_reason_message(_foreign_invoice(), context=_ctx()).content
+    assert "art. 28b ust. 1" in text  # kontekst prawny wstrzykniety
+    assert "Miejscem swiadczenia uslug" in text
+    assert "cytuj" in text.lower()  # instrukcja cytowania
+
+
+def test_no_context_message_matches_legacy_form():
+    # Bez kontekstu wiadomosc jest identyczna jak wczesniej (wsteczna zgodnosc).
+    assert (
+        build_reason_message(_foreign_invoice()).content
+        == build_reason_message(_foreign_invoice(), context=None).content
+    )
+
+
+def test_reason_threads_citations_through():
+    judgment = ClassificationJudgment(
+        treatment=TaxTreatment.IMPORT_USLUG,
+        confidence=0.8,
+        rationale_pl="art. 28b -> import uslug",
+        human_must_confirm=[],
+        currency_note="",
+        citations=[
+            Citation(
+                source_id="vat-art-28b",
+                article_ref="art. 28b ust. 1",
+                quoted_span="Miejscem swiadczenia uslug",
+            )
+        ],
+    )
+    out = ClaudeExceptionReasoner(llm=_FakeLLM(judgment)).reason(
+        _foreign_invoice(), _base(), _ctx()
+    )
+    assert out.citations[0].article_ref == "art. 28b ust. 1"
+    assert out.country_bucket == CountryBucket.POZA_UE  # zachowany deterministyczny bucket

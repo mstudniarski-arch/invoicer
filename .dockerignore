@@ -7,7 +7,6 @@ __pycache__
 .ruff_cache
 tests
 docs
-scripts
 streamlit_session
 *.sqlite
 ledger.jsonl

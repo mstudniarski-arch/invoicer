@@ -17,10 +17,12 @@ flowchart LR
     A[fetch_email] --> B["extract<br/>(Claude vision)"]
     B --> C["validate<br/>(NIP · sums · duplicates)"]
     C --> D{classify}
-    D -->|foreign| E["reason_exception<br/>(LLM judge)"]
     D -->|domestic PL| F["human_review<br/>(interrupt)"]
-    E --> F
-    F -->|approve| G["book<br/>(Subiekt mock + ledger)"]
+    D -->|foreign| R["retrieve_legal_context<br/>(pgvector + Voyage rerank)"]
+    R --> E["reason_exception<br/>(grounded, cited)"]
+    E --> V["verify_grounding<br/>(faithfulness + abstain)"]
+    V --> F
+    F -->|approve| G["book<br/>(Fakturownia / mock + ledger)"]
     F -->|reject| H[end]
 ```
 
@@ -39,6 +41,25 @@ flowchart LR
 - **Security-first.** Prompt-injection defense (the document rides as a separate *data* block, never as instructions; structured output; the human gate authorizes the only side effect). The exception-reasoning step receives **only an allow-listed summary** — no buyer PII or addresses leave the process.
 - **CI-testable LLM integration.** The LLM is injected behind a port, so the whole pipeline runs deterministically against a fake in CI; the real Anthropic API is exercised by a single **live-gated** smoke test that skips without a key.
 
+### Legal-grounded corrective RAG
+
+Foreign-invoice tax reasoning is **grounded in real Polish VAT law**, not the model's memory: the
+agent retrieves the relevant provisions (`art. 28b`, `art. 17` reverse charge, WNT, import) from a
+**pgvector** store (embeddings + reranking via **Voyage AI**), generates a classification that
+**cites its legal basis**, then a **faithfulness check** verifies each citation is actually supported
+by the source. When grounding is weak or unsupported, the agent **abstains** — it caps its confidence
+and flags the human, never auto-booking. Retrieval quality, faithfulness, and with/without-RAG
+treatment accuracy are measured in [`docs/evals/legal-rag-report.md`](docs/evals/legal-rag-report.md).
+
+**Before vs after.** *Before*, foreign-invoice tax treatment came straight from Claude's parametric
+memory — plausible, but ungrounded: no citation to an actual provision, no way to tell a confident
+hallucination from a correct answer, and no failure mode when the model simply didn't know. *After*,
+the same question retrieves the real statute, classifies **with a cited legal basis**, runs a
+**faithfulness check** against the source, and **abstains** when grounding is weak — with retrieval
+(recall@k / MRR) and faithfulness measured as numbers, not vibes. Same hard human gate either way;
+the difference is that the machine can now show its work — or admit it can't. See it in one command:
+`PYTHONPATH=src uv run python scripts/rag_demo.py`.
+
 ## Architecture
 
 Ports-and-adapters around a LangGraph state machine — the core depends only on protocols, so I/O is swappable:
@@ -50,6 +71,8 @@ Ports-and-adapters around a LangGraph state machine — the core depends only on
 | `ExceptionReasoner` | `IdentityReasoner` / `StubExceptionReasoner` | **`ClaudeExceptionReasoner`** ✅ |
 | `AccountingSink` | `MockSubiektSink` (offline/demo) | **`FakturowniaSink`** ✅ (REST, cost invoice) |
 | `HumanReview` | CLI (`process_document`) | Streamlit *(planned)* |
+| `Embedder` | `DeterministicEmbedder` (CI) | **`VoyageEmbedder`** ✅ (`voyage-3-large`) |
+| `LegalKnowledgeStore` | `InMemoryLegalStore` (CI) | **`PgVectorLegalStore`** ✅ (pgvector + Voyage rerank) |
 
 Swapping the stub extractor for real Claude vision is a one-line change — the graph, state, and nodes are untouched:
 
@@ -59,21 +82,66 @@ build_invoice_graph(extractor=ClaudeVisionExtractor(), reasoner=ClaudeExceptionR
 
 ## Tech stack
 
-Python 3.12 · [uv](https://github.com/astral-sh/uv) · **LangGraph** (state graph, `interrupt`, checkpointer) · **langchain-anthropic** (`ChatAnthropic`, `with_structured_output`, multimodal) · Pydantic v2 · pytest · ruff.
+Python 3.12 · [uv](https://github.com/astral-sh/uv) · **LangGraph** (state graph, `interrupt`, checkpointer) · **langchain-anthropic** (`ChatAnthropic`, `with_structured_output`, multimodal) · **Voyage AI** (embeddings + rerank) · **pgvector** (Postgres) · Pydantic v2 · pytest · ruff.
 
-## Testing
+## Run the legal-grounded RAG — step by step
 
-- **103 unit/integration tests + 2 live-gated** — TDD throughout (failing test → minimal implementation → commit).
-- The full pipeline (including the real LangGraph `interrupt`/resume HITL flow) runs deterministically in CI via injected fakes.
-- Live tests hitting the real Anthropic API are gated behind `ANTHROPIC_API_KEY` (+ a fixture) and skip otherwise.
+Two ways to see the corrective-RAG flow: fully offline (no keys, runs against fakes) or with real grounding (Postgres + Voyage).
+
+### Offline (no keys) — see the corrective flow
+
+The whole pipeline, RAG included, runs deterministically against in-memory fakes — no API keys, no database.
 
 ```bash
 uv sync
-uv run pytest -q          # 103 passed, 2 skipped (live)
+uv run pytest -q                                   # deterministic; RAG runs against fakes
+
+# One command that walks the three grounding states: abstention / grounded / unsupported
+PYTHONPATH=src uv run python scripts/rag_demo.py
+```
+
+Prefer a UI? The Streamlit demo (offline by default) shows the same human-review gate:
+
+```bash
+uv run --group demo streamlit run src/invoicer/ui/streamlit_app.py
+```
+
+### Full RAG (real grounding) — Postgres + Voyage
+
+For real retrieval you need a pgvector store and a Voyage API key (and `ANTHROPIC_API_KEY` for real extraction/reasoning).
+
+```bash
+# 1) Start pgvector
+docker run -e POSTGRES_PASSWORD=x -p 5432:5432 pgvector/pgvector:pg16
+
+# 2) Point the app at it (+ keys for real grounding & reasoning)
+export DATABASE_URL=postgresql://postgres:x@localhost:5432/postgres
+export VOYAGE_API_KEY=...
+export ANTHROPIC_API_KEY=...                        # for real extraction/reasoning
+
+# 3) Ingest the Polish-VAT legal corpus into pgvector (idempotent)
+PYTHONPATH=src uv run python scripts/ingest_legal_corpus.py
+
+# 4) Run the eval harness — writes docs/evals/legal-rag-report.md (recall@k / MRR)
+PYTHONPATH=.:src uv run python scripts/run_evals.py
+
+# 5) Run the live, key-gated tests against the real store + Voyage
+uv run pytest tests/live -v
+```
+
+## Testing
+
+- **308 unit/integration tests + 10 live-gated** — TDD throughout (failing test → minimal implementation → commit).
+- The full pipeline (including the real LangGraph `interrupt`/resume HITL flow **and the corrective-RAG sub-flow**) runs deterministically in CI via injected fakes.
+- Live tests hitting the real Anthropic / Voyage / pgvector services are gated behind their env vars (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `DATABASE_URL`) and skip otherwise.
+
+```bash
+uv sync
+uv run pytest -q          # 308 passed, 10 skipped (live)
 uv run ruff check .
 ```
 
-To run the live tests, set `ANTHROPIC_API_KEY` and drop a real invoice PDF at `tests/live/fixtures/sample_invoice.pdf`.
+To run the live tests, set `ANTHROPIC_API_KEY` and drop a real invoice PDF at `tests/live/fixtures/sample_invoice.pdf` (and `VOYAGE_API_KEY` + `DATABASE_URL` for the RAG live tests).
 
 ## Roadmap
 
@@ -106,6 +174,10 @@ fly launch --copy-config --no-deploy
 # 3) Volume for /data (region matching fly.toml, e.g. waw)
 fly volumes create invoicer_data --region waw --size 1
 
+# Postgres + pgvector dla legal-grounding RAG
+fly postgres create --name invoicer-db --region ams
+fly postgres attach invoicer-db   # ustawia sekret DATABASE_URL
+
 # 4) Secrets (all in one shot)
 fly secrets set \
   ANTHROPIC_API_KEY="..." \
@@ -116,7 +188,9 @@ fly secrets set \
   FAKTUROWNIA_API_TOKEN="..." \
   FAKTUROWNIA_DOMAIN="mstudniarski" \
   GMAIL_SENDER_FILTER="m.studniarski@gmail.com" \
-  INVOICER_SINK="fakturownia"
+  INVOICER_SINK="fakturownia" \
+  VOYAGE_API_KEY="..." \
+  DATABASE_URL="postgres://..."
 
 # 5) Gmail token (headless): encode the local token.json into a secret
 fly secrets set GMAIL_TOKEN_B64="$(base64 -i token.json)"
