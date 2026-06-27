@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import uuid
 from pathlib import Path
 
 import streamlit as st
 
-from invoicer.runner import (
+# `streamlit run` nie dziedziczy PYTHONPATH=src (pakiet celowo nieinstalowany), wiec dokladamy
+# katalog src/ do sys.path, by `import invoicer` dzialal niezaleznie od sposobu startu.
+_SRC = str(Path(__file__).resolve().parents[2])
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+from invoicer.runner import (  # noqa: E402
     build_demo_graph,
     document_from_upload,
     resume_document,
     start_document,
 )
-from invoicer.security import install_redaction
+from invoicer.security import install_redaction  # noqa: E402
 
 install_redaction()  # scrubuje PII ze wszystkich logow invoicera (idempotentne)
 
