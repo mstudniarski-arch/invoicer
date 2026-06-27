@@ -946,6 +946,90 @@ git commit -m "feat(rag): wire retrieve -> reason -> verify corrective sub-flow 
 
 ---
 
+## Task 8: Register new state types in the checkpoint serializer allow-list
+
+The graph now persists `legal_context: list[RetrievedChunk]` and a `Classification` carrying `citations: list[Citation]` + `grounding_status: GroundingStatus` into the LangGraph checkpoint at the `human_review` interrupt. `runner.py` keeps an explicit `_CHECKPOINT_ALLOWED_TYPES` allow-list so HITL resume (WhatsApp approve, different process) survives a future `LANGGRAPH_STRICT_MSGPACK=true`. Unregistered types would deserialize as raw dicts and break resume. Register the three new types.
+
+**Files:**
+- Modify: `src/invoicer/runner.py`
+- Test: `tests/unit/test_runner.py` (append)
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# tests/unit/test_runner.py  (append)
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+from invoicer.models import Citation, Classification, CountryBucket, GroundingStatus, TaxTreatment
+from invoicer.rag.models import RetrievedChunk
+from invoicer.runner import _CHECKPOINT_ALLOWED_TYPES
+
+
+def test_rag_types_are_in_checkpoint_allowlist():
+    assert RetrievedChunk in _CHECKPOINT_ALLOWED_TYPES
+    assert Citation in _CHECKPOINT_ALLOWED_TYPES
+    assert GroundingStatus in _CHECKPOINT_ALLOWED_TYPES
+
+
+def test_checkpoint_serde_roundtrips_rag_state():
+    serde = JsonPlusSerializer(allowed_msgpack_modules=_CHECKPOINT_ALLOWED_TYPES)
+    chunk = RetrievedChunk(source_id="s", article_ref="a", title="t", url="u", text="x", score=0.9)
+    classification = Classification(
+        treatment=TaxTreatment.IMPORT_USLUG,
+        country_bucket=CountryBucket.POZA_UE,
+        citations=[Citation(source_id="s", article_ref="a", quoted_span="x")],
+        grounding_status=GroundingStatus.UNSUPPORTED,
+    )
+    state = {"legal_context": [chunk], "classification": classification}
+    restored = serde.loads_typed(serde.dumps_typed(state))
+    assert restored["legal_context"][0] == chunk
+    assert restored["classification"].citations[0].quoted_span == "x"
+    assert restored["classification"].grounding_status == GroundingStatus.UNSUPPORTED
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd /Users/mski/Developer/Invoicer && uv run pytest tests/unit/test_runner.py -k "allowlist or roundtrips_rag" -v`
+Expected: FAIL — `test_rag_types_are_in_checkpoint_allowlist` (the three types are not yet registered).
+
+- [ ] **Step 3: Register the types**
+
+In `src/invoicer/runner.py`, extend the imports and the tuple. Add to the `from invoicer.models import (...)` block: `Citation`, `GroundingStatus`. Add a new import: `from invoicer.rag.models import RetrievedChunk`. Then append the three types to `_CHECKPOINT_ALLOWED_TYPES`:
+
+```python
+_CHECKPOINT_ALLOWED_TYPES = (
+    InvoiceDocument,
+    Invoice,
+    LineItem,
+    Party,
+    Check,
+    CheckStatus,
+    ValidationResult,
+    Classification,
+    CountryBucket,
+    TaxTreatment,
+    BookingResult,
+    Citation,
+    GroundingStatus,
+    RetrievedChunk,
+)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd /Users/mski/Developer/Invoicer && uv run pytest tests/unit/test_runner.py -v`
+Expected: PASS (including the existing serializer round-trip/regression tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/mski/Developer/Invoicer
+git add src/invoicer/runner.py tests/unit/test_runner.py
+git commit -m "fix(rag): register RetrievedChunk/Citation/GroundingStatus in checkpoint allowlist"
+```
+
+---
+
 ## Final verification (whole plan)
 
 - [ ] **Run full suite + lint (CI parity)**
@@ -963,7 +1047,7 @@ Expected: all unit tests pass; live tests skip without keys; ruff clean. The for
 
 ## Self-Review (author check against spec)
 
-- **Spec coverage (milestones 2–4):** retrieval node + threshold (Task 3 — §4,§7) ✅; grounded generation with citations (Task 4 — §4,§10) ✅; abstention→human with capped confidence (Task 5 — §4,§7) ✅; faithfulness span-containment + unsupported handling (Task 6 — §7) ✅; 3 explicit nodes wired with foreign routing (Task 7 — §4) ✅; injection-continuity through retrieved law (Task 7 — §5) ✅; query from allow-list (Task 1 — §5) ✅. **Deferred (explicit):** Voyage reranking in the search path and LLM-entailment faithfulness → Plan 03 (§7,§13); these are additive and do not change the node contracts.
+- **Spec coverage (milestones 2–4):** retrieval node + threshold (Task 3 — §4,§7) ✅; grounded generation with citations (Task 4 — §4,§10) ✅; abstention→human with capped confidence (Task 5 — §4,§7) ✅; faithfulness span-containment + unsupported handling (Task 6 — §7) ✅; 3 explicit nodes wired with foreign routing (Task 7 — §4) ✅; injection-continuity through retrieved law (Task 7 — §5) ✅; query from allow-list (Task 1 — §5) ✅; checkpoint serializer allow-list for new persisted types so HITL resume survives strict-msgpack (Task 8 — §7 idempotency/HITL) ✅. **Deferred (explicit):** Voyage reranking in the search path and LLM-entailment faithfulness → Plan 03 (§7,§13); these are additive and do not change the node contracts.
 - **Placeholder scan:** every step contains complete, runnable code; no TBD/TODO.
 - **Type/name consistency:** `reason(invoice, base, context=None)` identical across the `ExceptionReasoner` port, `IdentityReasoner`, `StubExceptionReasoner`, `ClaudeExceptionReasoner`. Constants `RELEVANCE_THRESHOLD`/`CONFIDENCE_CAP_WEAK`/`CONFIDENCE_CAP_UNSUPPORTED` defined once in `nodes.py` and imported by tests. `legal_context` key consistent across `state.py`, the retrieve node, `reason_exception`, and `verify_grounding`. `make_retrieve_legal_context_node`/`make_verify_grounding_node` names match between `nodes.py` and `build.py`. `GroundingStatus` values (`grounded`/`weak`/`unsupported`) consistent with Plan 01's model.
 
