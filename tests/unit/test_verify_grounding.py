@@ -61,3 +61,12 @@ def test_weak_abstention_is_passed_through_untouched():
     update = node({"classification": weak, "legal_context": []})
     assert update["classification"].grounding_status == GroundingStatus.WEAK
     assert update["classification"].confidence == 0.4
+
+
+def test_citation_with_unknown_source_id_is_unsupported():
+    cit = Citation(
+        source_id="nieistniejacy", article_ref="art. 999", quoted_span="Miejscem swiadczenia uslug"
+    )
+    node = make_verify_grounding_node()
+    update = node({"classification": _classification([cit]), "legal_context": [_CHUNK]})
+    assert update["classification"].grounding_status == GroundingStatus.UNSUPPORTED

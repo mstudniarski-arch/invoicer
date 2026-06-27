@@ -121,8 +121,9 @@ def classify_node(state: InvoiceState) -> dict:
     """Wezel `classify`: deterministyczne traktowanie podatkowe wg kraju sprzedawcy.
 
     PL -> krajowa. Zagranica -> domyslnie import uslug (odwrotne obciazenie),
-    z lista rzeczy do potwierdzenia przez czlowieka. Bogate rozumowanie LLM
-    dla faktur zagranicznych doklada wezel reason_exception (Plan 05).
+    z lista rzeczy do potwierdzenia przez czlowieka.
+    Faktury zagraniczne ida przez retrieve_legal_context -> reason_exception (grounded)
+    -> verify_grounding.
     """
     invoice = state["invoice"]
     country = invoice.seller.country.upper()

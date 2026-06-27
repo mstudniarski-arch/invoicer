@@ -153,6 +153,55 @@ def test_foreign_invoice_runs_through_reason_exception(tmp_path):
     assert final["booking"].booking_id == "MOCK-FV/1"
 
 
+def test_foreign_invoice_grounded_when_citation_supported(tmp_path):
+    from invoicer.adapters.fake_embedder import DeterministicEmbedder
+    from invoicer.adapters.in_memory_legal_store import InMemoryLegalStore
+    from invoicer.models import Citation, GroundingStatus
+    from invoicer.rag.corpus import Chunk
+    from invoicer.rag.query import build_retrieval_query
+
+    inv = _foreign_invoice()
+    chunk_text = build_retrieval_query(inv)  # zawiera m.in. "Kraj sprzedawcy: GB"
+    chunk = Chunk(
+        source_id="vat-art-28b",
+        article_ref="art. 28b ust. 1",
+        title="t",
+        url="u",
+        kind="ustawa",
+        text=chunk_text,
+    )
+    store = InMemoryLegalStore.from_chunks([chunk], DeterministicEmbedder(dim=64))
+    grounded = Classification(
+        treatment=TaxTreatment.IMPORT_USLUG,
+        country_bucket=CountryBucket.POZA_UE,
+        confidence=0.8,
+        rationale_pl="art. 28b -> miejsce swiadczenia w PL",
+        citations=[
+            Citation(
+                source_id="vat-art-28b",
+                article_ref="art. 28b ust. 1",
+                quoted_span="Kraj sprzedawcy: GB",
+            )
+        ],
+    )
+    graph = build_invoice_graph(
+        extractor=StubExtractor(inv),
+        ledger=Ledger(tmp_path / "l.jsonl"),
+        sink=MockSubiektSink(),
+        reasoner=StubExceptionReasoner(grounded),
+        store=store,
+        clock=lambda: "2026-06-01T10:00:00",
+    )
+    config = {"configurable": {"thread_id": "grd"}}
+    paused = graph.invoke({"document": _doc(), "errors": []}, config)
+    assert paused["classification"].grounding_status == GroundingStatus.GROUNDED
+    assert paused["classification"].confidence == 0.8  # cytat poparty -> brak capa
+    # grounding_status widoczny dla czlowieka w payloadzie interrupt
+    assert paused["__interrupt__"][0].value["grounding_status"] == "grounded"
+    final = graph.invoke(Command(resume="approve"), config)
+    assert final["booking"].booking_id == "MOCK-FV/1"
+
+
 def test_pl_invoice_skips_reason_exception(tmp_path):
     # Sedzia, ktory by "zepsul" klasyfikacje, NIE powinien byc wolany dla PL.
     poison = Classification(

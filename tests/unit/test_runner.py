@@ -273,5 +273,6 @@ def test_checkpoint_serde_roundtrips_rag_state():
     state = {"legal_context": [chunk], "classification": classification}
     restored = serde.loads_typed(serde.dumps_typed(state))
     assert restored["legal_context"][0] == chunk
+    assert isinstance(restored["legal_context"][0], RetrievedChunk)
     assert restored["classification"].citations[0].quoted_span == "x"
     assert restored["classification"].grounding_status == GroundingStatus.UNSUPPORTED
