@@ -6,11 +6,13 @@ from datetime import datetime
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
+from langsmith import traceable
 
 from invoicer.booking import invoice_to_booking_payload
 from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import Classification, CountryBucket, GroundingStatus, TaxTreatment
 from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor, LegalKnowledgeStore
+from invoicer.rag.models import RetrievedChunk
 from invoicer.rag.query import build_retrieval_query
 from invoicer.state import InvoiceState
 from invoicer.validation import validate_invoice
@@ -50,9 +52,14 @@ def make_retrieve_legal_context_node(
     pusta lista = sygnal do abstention w reason_exception.
     """
 
+    @traceable(run_type="retriever", name="legal_retrieval")
+    def _search(query: str) -> list[RetrievedChunk]:
+        # Osobny span w LangSmith: zapytanie + pobrane przepisy ze score (przed progiem).
+        return store.search(query, k=k)
+
     def retrieve_legal_context(state: InvoiceState) -> dict:
         query = build_retrieval_query(state["invoice"])
-        hits = store.search(query, k=k)
+        hits = _search(query)
         relevant = [h for h in hits if h.score >= threshold]
         return {"legal_context": relevant}
 
