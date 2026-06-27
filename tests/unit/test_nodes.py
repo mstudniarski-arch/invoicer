@@ -7,6 +7,7 @@ from invoicer.adapters.mock_subiekt import MockSubiektSink
 from invoicer.adapters.stub_extractor import StubExtractor
 from invoicer.adapters.stub_reasoner import IdentityReasoner, StubExceptionReasoner
 from invoicer.graph.nodes import (
+    CONFIDENCE_CAP_WEAK,
     classify_node,
     make_book_node,
     make_extract_node,
@@ -22,6 +23,7 @@ from invoicer.models import (
     CheckStatus,
     Classification,
     CountryBucket,
+    GroundingStatus,
     Invoice,
     InvoiceDocument,
     LineItem,
@@ -29,6 +31,7 @@ from invoicer.models import (
     TaxTreatment,
     ValidationResult,
 )
+from invoicer.rag.models import RetrievedChunk
 
 
 def _invoice(confidence=0.95) -> Invoice:
@@ -124,6 +127,10 @@ def test_route_after_validate_hard_error_non_duplicate_still_to_classify():
     # Twardy blad walidacji (np. NIP) NIE jest duplikatem -> nadal do czlowieka (classify).
     bad = ValidationResult(checks=[Check(name="nip", status=CheckStatus.FAIL)], is_duplicate=False)
     assert route_after_validate({"invoice": _invoice(), "validation": bad}) == "classify"
+
+
+def _ctx():
+    return [RetrievedChunk(source_id="s", article_ref="art. 28b", title="t", url="u", text="x")]
 
 
 def _foreign_invoice() -> Invoice:
@@ -232,7 +239,7 @@ def test_reason_exception_node_enriches_classification():
         rationale_pl="to towar",
     )
     node = make_reason_exception_node(StubExceptionReasoner(enriched))
-    update = node({"invoice": _foreign_invoice(), "classification": base})
+    update = node({"invoice": _foreign_invoice(), "classification": base, "legal_context": _ctx()})
     assert update["classification"].treatment == TaxTreatment.IMPORT_TOWAROW
     assert update["classification"].confidence == 0.9
 
@@ -242,5 +249,18 @@ def test_reason_exception_node_identity_keeps_base():
         treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.POZA_UE, confidence=0.6
     )
     node = make_reason_exception_node(IdentityReasoner())
-    update = node({"invoice": _foreign_invoice(), "classification": base})
+    update = node({"invoice": _foreign_invoice(), "classification": base, "legal_context": _ctx()})
     assert update["classification"] == base
+
+
+def test_reason_exception_node_abstains_without_context():
+    base = Classification(
+        treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.POZA_UE, confidence=0.9
+    )
+    node = make_reason_exception_node(StubExceptionReasoner(base))  # nie powinien byc wywolany
+    update = node({"invoice": _foreign_invoice(), "classification": base, "legal_context": []})
+    out = update["classification"]
+    assert out.grounding_status == GroundingStatus.WEAK
+    assert out.confidence <= CONFIDENCE_CAP_WEAK
+    assert any("podstawy prawnej" in m for m in out.human_must_confirm)
+    assert out.treatment == TaxTreatment.IMPORT_USLUG  # zachowany deterministyczny prior

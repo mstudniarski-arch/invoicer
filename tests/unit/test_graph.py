@@ -17,6 +17,7 @@ from invoicer.models import (
     Party,
     TaxTreatment,
 )
+from invoicer.rag.models import RetrievedChunk
 
 
 def _invoice() -> Invoice:
@@ -128,7 +129,8 @@ def test_foreign_invoice_runs_through_reason_exception(tmp_path):
         clock=lambda: "2026-06-01T10:00:00",
     )
     config = {"configurable": {"thread_id": "f1"}}
-    paused = graph.invoke({"document": _doc(), "errors": []}, config)
+    ctx = [RetrievedChunk(source_id="s", article_ref="art. 28b", title="t", url="u", text="x")]
+    paused = graph.invoke({"document": _doc(), "errors": [], "legal_context": ctx}, config)
     # po reason_exception klasyfikacja jest wzbogacona przez sedziego
     assert paused["classification"].treatment == TaxTreatment.IMPORT_TOWAROW
     assert paused["classification"].rationale_pl == "towar wg sedziego"

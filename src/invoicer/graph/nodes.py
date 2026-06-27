@@ -8,7 +8,7 @@ from langgraph.types import interrupt
 
 from invoicer.booking import invoice_to_booking_payload
 from invoicer.ledger import Ledger, LedgerEntry
-from invoicer.models import Classification, CountryBucket, TaxTreatment
+from invoicer.models import Classification, CountryBucket, GroundingStatus, TaxTreatment
 from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor, LegalKnowledgeStore
 from invoicer.rag.query import build_retrieval_query
 from invoicer.state import InvoiceState
@@ -213,10 +213,28 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
 
 
 def make_reason_exception_node(reasoner: ExceptionReasoner):
-    """Wezel `reason_exception`: sedzia-LLM wzbogaca klasyfikacje faktury zagranicznej."""
+    """Wezel `reason_exception`: grounded generation, albo abstention gdy brak kontekstu prawnego.
+
+    Gdy legal_context jest puste (retrieval nic nie zwrocil), wezel NIE wywoluje LLM —
+    zachowuje deterministyczny prior, ustawia grounding_status=WEAK i ogranicza confidence.
+    """
 
     def reason_exception(state: InvoiceState) -> dict:
-        enriched = reasoner.reason(state["invoice"], state["classification"])
+        base = state["classification"]
+        context = state.get("legal_context", [])
+        if not context:
+            weak = base.model_copy(
+                update={
+                    "grounding_status": GroundingStatus.WEAK,
+                    "confidence": min(base.confidence, CONFIDENCE_CAP_WEAK),
+                    "human_must_confirm": [
+                        *base.human_must_confirm,
+                        "brak wystarczajacej podstawy prawnej w bazie — wymaga recznej weryfikacji",
+                    ],
+                }
+            )
+            return {"classification": weak}
+        enriched = reasoner.reason(state["invoice"], base, context)
         return {"classification": enriched}
 
     return reason_exception
