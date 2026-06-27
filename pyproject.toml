@@ -17,6 +17,8 @@ dependencies = [
     "pydantic>=2.7",
     "python-multipart>=0.0.32",
     "sentry-sdk>=2.0",
+    "pgvector>=0.3.6",
+    "psycopg[binary]>=3.2",
     "uvicorn>=0.49.0",
     "voyageai>=0.3.2",
 ]
