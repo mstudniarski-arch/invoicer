@@ -132,6 +132,19 @@ def build_legal_store():
     return InMemoryLegalStore(DeterministicEmbedder())
 
 
+def build_sink():
+    """AccountingSink wg env: FakturowniaSink gdy INVOICER_SINK=fakturownia, inaczej MockSubiekt.
+
+    Fakturownia ksieguje fakture jako KOSZT (income=0) — widoczne w .../invoices?income=no.
+    Wymaga FAKTUROWNIA_API_TOKEN + FAKTUROWNIA_DOMAIN.
+    """
+    if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
+        from invoicer.adapters.fakturownia import build_fakturownia_sink
+
+        return build_fakturownia_sink()
+    return MockSubiektSink()
+
+
 def build_demo_graph(*, ledger_path: Path):
     """Buduje graf demo: realny Claude gdy ANTHROPIC_API_KEY, inaczej offline (stub)."""
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -147,7 +160,7 @@ def build_demo_graph(*, ledger_path: Path):
         extractor=extractor,
         reasoner=reasoner,
         ledger=Ledger(ledger_path),
-        sink=MockSubiektSink(),
+        sink=build_sink(),
         store=build_legal_store(),
     )
 

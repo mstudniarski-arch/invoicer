@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import sys
 import tempfile
 import uuid
@@ -169,17 +170,17 @@ def _pipeline(state, payload, result) -> str:
         cards.append(
             _card(
                 "09",
-                "book · Subiekt mock + ledger",
+                "book · księgowanie + ledger",
                 "ok",
                 f"{_esc(booked.booking_id)} → {_esc(booked.sink)}",
             )
         )
     elif result is not None:
         cards.append(
-            _card("09", "book · Subiekt mock + ledger", "fail", "odrzucono — nic nie zaksiegowano")
+            _card("09", "book · księgowanie + ledger", "fail", "odrzucono — nic nie zaksiegowano")
         )
     else:
-        cards.append(_card("09", "book · Subiekt mock + ledger", "idle", "—"))
+        cards.append(_card("09", "book · księgowanie + ledger", "idle", "—"))
     return '<div class="cp-pipe">' + "".join(cards) + "</div>"
 
 
@@ -259,6 +260,15 @@ if payload and result is None:
 if result is not None:
     booking = result.get("booking")
     if booking is not None:
-        st.success(f"✅ Zaksięgowano (mock): {booking.booking_id} → {booking.sink}")
+        if booking.sink == "fakturownia":
+            domain = os.getenv("FAKTUROWNIA_DOMAIN", "")
+            link = (
+                f" — [otwórz w Fakturowni](https://{domain}.fakturownia.pl/invoices?income=no)"
+                if domain
+                else ""
+            )
+            st.success(f"✅ Zaksięgowano w Fakturowni (koszt): {booking.booking_id}{link}")
+        else:
+            st.success(f"✅ Zaksięgowano [{booking.sink}]: {booking.booking_id}")
     else:
         st.error("✕ Odrzucono — nic nie zaksięgowano (bramka człowieka zadziałała).")

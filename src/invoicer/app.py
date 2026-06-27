@@ -20,7 +20,7 @@ from invoicer.observability_alerts import format_failure_alert, send_failure_ale
 from invoicer.observability_sentry import init_sentry
 from invoicer.observability_status import PipelineCounters, pipeline_status
 from invoicer.processed import ProcessedDocuments
-from invoicer.runner import _demo_invoice, build_legal_store, persistent_checkpointer
+from invoicer.runner import _demo_invoice, build_legal_store, build_sink, persistent_checkpointer
 from invoicer.scheduler import build_scheduler, run_intake
 from invoicer.security import install_redaction
 from invoicer.webhook import create_inbound_app
@@ -49,17 +49,11 @@ def _build_real_graph(settings: AppSettings, checkpointer):
     from invoicer.adapters.claude_extractor import ClaudeVisionExtractor
     from invoicer.adapters.claude_reasoner import ClaudeExceptionReasoner
 
-    if os.getenv("INVOICER_SINK", "").lower() == "fakturownia":
-        from invoicer.adapters.fakturownia import build_fakturownia_sink
-
-        sink = build_fakturownia_sink()
-    else:
-        sink = MockSubiektSink()
     return build_invoice_graph(
         extractor=ClaudeVisionExtractor(),
         reasoner=ClaudeExceptionReasoner(),
         ledger=Ledger(settings.data_dir / "ledger.jsonl"),
-        sink=sink,
+        sink=build_sink(),
         checkpointer=checkpointer,
         store=build_legal_store(),
     )
