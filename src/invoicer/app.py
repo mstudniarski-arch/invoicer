@@ -20,7 +20,7 @@ from invoicer.observability_alerts import format_failure_alert, send_failure_ale
 from invoicer.observability_sentry import init_sentry
 from invoicer.observability_status import PipelineCounters, pipeline_status
 from invoicer.processed import ProcessedDocuments
-from invoicer.runner import _demo_invoice, persistent_checkpointer
+from invoicer.runner import _demo_invoice, build_legal_store, persistent_checkpointer
 from invoicer.scheduler import build_scheduler, run_intake
 from invoicer.security import install_redaction
 from invoicer.webhook import create_inbound_app
@@ -61,6 +61,7 @@ def _build_real_graph(settings: AppSettings, checkpointer):
         ledger=Ledger(settings.data_dir / "ledger.jsonl"),
         sink=sink,
         checkpointer=checkpointer,
+        store=build_legal_store(),
     )
 
 

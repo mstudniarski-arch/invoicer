@@ -115,6 +115,23 @@ def fetch_invoice_documents(
     return [doc for doc in source.fetch(sender) if detector.is_invoice(doc)]
 
 
+def build_legal_store():
+    """Realny PgVectorLegalStore (Voyage + rerank) gdy DATABASE_URL; inaczej pusty store.
+
+    Pusty InMemoryLegalStore => brak kontekstu => abstention (graf dziala bez bazy/kluczy).
+    """
+    if os.getenv("DATABASE_URL"):
+        from invoicer.adapters.pgvector_store import PgVectorLegalStore
+        from invoicer.adapters.voyage_embedder import VoyageEmbedder
+        from invoicer.adapters.voyage_reranker import VoyageReranker
+
+        return PgVectorLegalStore(VoyageEmbedder(), reranker=VoyageReranker())
+    from invoicer.adapters.fake_embedder import DeterministicEmbedder
+    from invoicer.adapters.in_memory_legal_store import InMemoryLegalStore
+
+    return InMemoryLegalStore(DeterministicEmbedder())
+
+
 def build_demo_graph(*, ledger_path: Path):
     """Buduje graf demo: realny Claude gdy ANTHROPIC_API_KEY, inaczej offline (stub)."""
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -127,7 +144,11 @@ def build_demo_graph(*, ledger_path: Path):
         extractor = StubExtractor(_demo_invoice())
         reasoner = IdentityReasoner()
     return build_invoice_graph(
-        extractor=extractor, reasoner=reasoner, ledger=Ledger(ledger_path), sink=MockSubiektSink()
+        extractor=extractor,
+        reasoner=reasoner,
+        ledger=Ledger(ledger_path),
+        sink=MockSubiektSink(),
+        store=build_legal_store(),
     )
 
 
