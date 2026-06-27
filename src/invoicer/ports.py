@@ -44,9 +44,14 @@ class InvoiceExtractor(Protocol):
 
 @runtime_checkable
 class ExceptionReasoner(Protocol):
-    """Sedzia-LLM: wzbogaca deterministyczna klasyfikacje faktury zagranicznej."""
+    """Sedzia-LLM: gruntuje klasyfikacje faktury zagranicznej w dostarczonym kontekscie prawnym."""
 
-    def reason(self, invoice: Invoice, base: Classification) -> Classification: ...
+    def reason(
+        self,
+        invoice: Invoice,
+        base: Classification,
+        context: list[RetrievedChunk] | None = None,
+    ) -> Classification: ...
 
 
 @runtime_checkable
