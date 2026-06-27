@@ -80,6 +80,46 @@ Swapping the stub extractor for real Claude vision is a one-line change — the 
 build_invoice_graph(extractor=ClaudeVisionExtractor(), reasoner=ClaudeExceptionReasoner(), ...)
 ```
 
+## How an invoice flows — EU vs non-EU
+
+EU and non-EU invoices take the **same graph path** — they differ only in *values*: the
+`country_bucket`, the law retrieved, and the proposed tax treatment. Clicking **Process** runs one
+`graph.invoke(...)` up to the human gate (a LangGraph `interrupt`); booking happens on a separate **Approve**.
+
+```text
+Process
+  → extract        Claude vision — PDF → structured Invoice
+  → validate       NIP checksum · net+VAT=gross · duplicate
+  → classify?      seller country
+       ├─ PL ──────────────────────────────────────────────► human gate   (RAG skipped)
+       └─ foreign (EU or non-EU)
+            → retrieve_legal_context   query (PII allow-list) → pgvector cosine → Voyage rerank → top-5
+            → reason_exception         Claude grounded → treatment + citations (articles)
+            → verify_grounding         each citation ⊆ source? → grounded / unsupported (weak if no law)
+            → human gate
+  human gate?  Approve → book (Fakturownia, income=0) + hash-chained ledger
+               Reject  → end (nothing booked)
+```
+
+Each step is a LangGraph node (`src/invoicer/graph/nodes.py`); the LLM islands (`extract`,
+`reason_exception`) and retrieval (`legal_retrieval` span) appear as their own spans in LangSmith.
+
+**What actually differs:**
+
+| | **EU** (DE, FR, IE, …) | **non-EU** (GB, US, CN, …) |
+|---|---|---|
+| `country_bucket` | `UE` | `POZA_UE` |
+| Enters the RAG sub-flow | yes | yes — identical path |
+| **Service** → treatment | `import_uslug` — **art. 28b** (place of supply in PL), reverse charge | `import_uslug` — **art. 28b** (same) |
+| **Goods** → treatment | **`wnt`** — **art. 9** (intra-Community acquisition) | **`import_towarow`** — **art. 2 pkt 7** (customs) |
+| Fakturownia `reverse_charge` | `import_uslug` → **true** · `wnt` → **false** | `import_uslug` → **true** · `import_towarow` → **false** |
+
+So **services** resolve the same for EU and non-EU (`import_uslug`, art. 28b); **goods** diverge — EU →
+**WNT (art. 9)**, non-EU → **import of goods (art. 2 pkt 7)**. The deterministic `classify` step sets a
+conservative `import_uslug` prior for any foreign invoice; the grounded `reason_exception` node (Claude +
+retrieved statute) corrects it to WNT / import-of-goods and **cites the basis** — always confirmed by the
+human before anything is booked.
+
 ## Tech stack
 
 Python 3.12 · [uv](https://github.com/astral-sh/uv) · **LangGraph** (state graph, `interrupt`, checkpointer) · **langchain-anthropic** (`ChatAnthropic`, `with_structured_output`, multimodal) · **Voyage AI** (embeddings + rerank) · **pgvector** (Postgres) · Pydantic v2 · pytest · ruff.
