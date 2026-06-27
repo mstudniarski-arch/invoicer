@@ -9,13 +9,17 @@ from langgraph.types import interrupt
 from invoicer.booking import invoice_to_booking_payload
 from invoicer.ledger import Ledger, LedgerEntry
 from invoicer.models import Classification, CountryBucket, TaxTreatment
-from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor
+from invoicer.ports import AccountingSink, ExceptionReasoner, InvoiceExtractor, LegalKnowledgeStore
+from invoicer.rag.query import build_retrieval_query
 from invoicer.state import InvoiceState
 from invoicer.validation import validate_invoice
 
 _logger = logging.getLogger("invoicer.graph")
 
 LOW_CONFIDENCE = 0.6
+RELEVANCE_THRESHOLD = 0.5
+CONFIDENCE_CAP_WEAK = 0.4
+CONFIDENCE_CAP_UNSUPPORTED = 0.3
 
 
 def make_extract_node(extractor: InvoiceExtractor):
@@ -34,6 +38,24 @@ def make_extract_node(extractor: InvoiceExtractor):
         return update
 
     return extract
+
+
+def make_retrieve_legal_context_node(
+    store: LegalKnowledgeStore, *, k: int = 5, threshold: float = RELEVANCE_THRESHOLD
+):
+    """Wezel `retrieve_legal_context`: pobiera trafne przepisy z bazy wektorowej.
+
+    Query budowane z allowlisty (bez PII). Fragmenty ponizej progu trafnosci odrzucane;
+    pusta lista = sygnal do abstention w reason_exception.
+    """
+
+    def retrieve_legal_context(state: InvoiceState) -> dict:
+        query = build_retrieval_query(state["invoice"])
+        hits = store.search(query, k=k)
+        relevant = [h for h in hits if h.score >= threshold]
+        return {"legal_context": relevant}
+
+    return retrieve_legal_context
 
 
 def make_validate_node(ledger: Ledger):
