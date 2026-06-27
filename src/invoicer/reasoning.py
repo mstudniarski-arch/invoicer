@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from invoicer.models import Classification, CountryBucket, TaxTreatment
+from invoicer.models import Citation, Classification, CountryBucket, TaxTreatment
 
 
 class ClassificationJudgment(BaseModel):
@@ -18,6 +18,10 @@ class ClassificationJudgment(BaseModel):
         default_factory=list, description="Co czlowiek musi potwierdzic"
     )
     currency_note: str = Field(default="", description="Nota walutowa, jesli waluta != PLN")
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="Cytaty podstawy prawnej (article_ref + doslowny fragment)",
+    )
 
 
 def judgment_to_classification(
@@ -31,4 +35,5 @@ def judgment_to_classification(
         rationale_pl=judgment.rationale_pl,
         human_must_confirm=judgment.human_must_confirm,
         currency_note=judgment.currency_note,
+        citations=judgment.citations,
     )

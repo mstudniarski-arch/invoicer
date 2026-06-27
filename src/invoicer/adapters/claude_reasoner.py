@@ -5,6 +5,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from invoicer.models import Classification, Invoice
+from invoicer.rag.models import RetrievedChunk
 from invoicer.rag.query import build_retrieval_query
 from invoicer.reasoning import ClassificationJudgment, judgment_to_classification
 
@@ -22,10 +23,21 @@ REASON_PROMPT = (
 )
 
 
-def build_reason_message(invoice: Invoice) -> HumanMessage:
-    """Buduje wiadomosc tekstowa dla sedziego: prompt + allowlista pol (bez PII, bez dokumentu)."""
-    query = build_retrieval_query(invoice)
-    return HumanMessage(content=f"{REASON_PROMPT}\n\nDane faktury:\n{query}")
+def build_reason_message(
+    invoice: Invoice, context: list[RetrievedChunk] | None = None
+) -> HumanMessage:
+    """Prompt + allowlista pol. Z kontekstem prawnym: dolacza fragmenty i instrukcje cytowania."""
+    body = f"{REASON_PROMPT}\n\nDane faktury:\n{build_retrieval_query(invoice)}"
+    if context:
+        blocks = "\n".join(
+            f"[{i}] ({c.source_id}, {c.article_ref}) {c.text}" for i, c in enumerate(context, 1)
+        )
+        body += (
+            "\n\nKontekst prawny (opieraj sie WYLACZNIE na ponizszych fragmentach; "
+            "w polu citations cytuj article_ref i DOSLOWNY fragment uzasadniajacy teze):\n"
+            f"{blocks}"
+        )
+    return HumanMessage(content=body)
 
 
 class ClaudeExceptionReasoner:
@@ -48,8 +60,10 @@ class ClaudeExceptionReasoner:
             self._llm = ChatAnthropic(model=self._model, callbacks=self._callbacks)
         return self._llm
 
-    def reason(self, invoice: Invoice, base: Classification) -> Classification:
-        message = build_reason_message(invoice)
+    def reason(
+        self, invoice: Invoice, base: Classification, context: list[RetrievedChunk] | None = None
+    ) -> Classification:
+        message = build_reason_message(invoice, context)
         structured = self._client().with_structured_output(ClassificationJudgment)
         judgment = structured.invoke([message])
         return judgment_to_classification(judgment, base.country_bucket)
