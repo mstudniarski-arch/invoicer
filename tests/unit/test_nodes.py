@@ -221,11 +221,11 @@ def test_route_after_classify_pl_goes_to_human_review():
     assert route_after_classify({"classification": c}) == "human_review"
 
 
-def test_route_after_classify_foreign_goes_to_reason_exception():
+def test_route_after_classify_foreign_goes_to_retrieve():
     c = Classification(treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.POZA_UE)
-    assert route_after_classify({"classification": c}) == "reason_exception"
+    assert route_after_classify({"classification": c}) == "retrieve_legal_context"
     c_ue = Classification(treatment=TaxTreatment.IMPORT_USLUG, country_bucket=CountryBucket.UE)
-    assert route_after_classify({"classification": c_ue}) == "reason_exception"
+    assert route_after_classify({"classification": c_ue}) == "retrieve_legal_context"
 
 
 def test_reason_exception_node_enriches_classification():

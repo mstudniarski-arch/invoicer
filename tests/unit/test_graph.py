@@ -17,7 +17,6 @@ from invoicer.models import (
     Party,
     TaxTreatment,
 )
-from invoicer.rag.models import RetrievedChunk
 
 
 def _invoice() -> Invoice:
@@ -121,17 +120,33 @@ def test_foreign_invoice_runs_through_reason_exception(tmp_path):
         confidence=0.9,
         rationale_pl="towar wg sedziego",
     )
+    from invoicer.adapters.fake_embedder import DeterministicEmbedder
+    from invoicer.adapters.in_memory_legal_store import InMemoryLegalStore
+    from invoicer.rag.corpus import Chunk
+    from invoicer.rag.query import build_retrieval_query
+
+    inv = _foreign_invoice()
+    chunk = Chunk(
+        source_id="s",
+        article_ref="art. 28b",
+        title="t",
+        url="u",
+        kind="ustawa",
+        text=build_retrieval_query(inv),
+    )
+    store = InMemoryLegalStore.from_chunks([chunk], DeterministicEmbedder(dim=64))
     graph = build_invoice_graph(
-        extractor=StubExtractor(_foreign_invoice()),
+        extractor=StubExtractor(inv),
         ledger=Ledger(tmp_path / "l.jsonl"),
         sink=MockSubiektSink(),
         reasoner=StubExceptionReasoner(enriched),
+        store=store,
         clock=lambda: "2026-06-01T10:00:00",
     )
     config = {"configurable": {"thread_id": "f1"}}
-    ctx = [RetrievedChunk(source_id="s", article_ref="art. 28b", title="t", url="u", text="x")]
-    paused = graph.invoke({"document": _doc(), "errors": [], "legal_context": ctx}, config)
-    # po reason_exception klasyfikacja jest wzbogacona przez sedziego
+    paused = graph.invoke({"document": _doc(), "errors": []}, config)
+    # retrieval -> context -> reason_exception (sedzia wzbogaca); verify_grounding nie zmienia
+    # treatment
     assert paused["classification"].treatment == TaxTreatment.IMPORT_TOWAROW
     assert paused["classification"].rationale_pl == "towar wg sedziego"
     final = graph.invoke(Command(resume="approve"), config)

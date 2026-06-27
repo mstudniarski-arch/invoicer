@@ -174,6 +174,8 @@ def human_review(state: InvoiceState) -> dict:
         "treatment": str(classification.treatment),
         "rationale": classification.rationale_pl,
         "must_confirm": classification.human_must_confirm,
+        "grounding_status": str(classification.grounding_status),
+        "citations": [c.article_ref for c in classification.citations],
     }
     decision = interrupt(payload)
     return {"human_decision": decision}
@@ -241,10 +243,10 @@ def make_reason_exception_node(reasoner: ExceptionReasoner):
 
 
 def route_after_classify(state: InvoiceState) -> str:
-    """Krawedz warunkowa po classify: PL -> human_review; zagranica -> reason_exception."""
+    """Krawedz po classify: PL -> human_review; zagranica -> retrieve_legal_context (RAG)."""
     if state["classification"].country_bucket == CountryBucket.PL:
         return "human_review"
-    return "reason_exception"
+    return "retrieve_legal_context"
 
 
 def _normalize(text: str) -> str:
