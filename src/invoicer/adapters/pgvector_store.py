@@ -36,6 +36,8 @@ class PgVectorLegalStore:
         dim: int = 1024,
         conn: Any = None,
         table: str = "legal_chunks",
+        reranker: Any = None,
+        fetch_n: int = 20,
     ) -> None:
         if not table.replace("_", "").isalnum():
             raise ValueError(f"Niedozwolona nazwa tabeli: {table!r}")
@@ -44,6 +46,8 @@ class PgVectorLegalStore:
         self._dim = dim
         self._conn = conn
         self._table = table
+        self._reranker = reranker
+        self._fetch_n = fetch_n
 
     def _connection(self) -> Any:
         if self._conn is None:
@@ -83,19 +87,24 @@ class PgVectorLegalStore:
         from pgvector.psycopg import Vector
 
         q = Vector(self._embedder.embed_query(query))
+        limit = self._fetch_n if self._reranker else k
         rows = (
             self._connection()
             .execute(
                 "SELECT source_id, article_ref, title, url, text, "
                 "1 - (embedding <=> %s) AS score "
                 f"FROM {self._table} ORDER BY embedding <=> %s LIMIT %s",
-                (q, q, k),
+                (q, q, limit),
             )
             .fetchall()
         )
-        return [
+        chunks = [
             RetrievedChunk(
                 source_id=r[0], article_ref=r[1], title=r[2], url=r[3], text=r[4], score=r[5]
             )
             for r in rows
         ]
+        if not self._reranker or not chunks:
+            return chunks[:k]
+        order = self._reranker.rerank(query, [c.text for c in chunks], top_k=k)
+        return [chunks[idx].model_copy(update={"score": score}) for idx, score in order]

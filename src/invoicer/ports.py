@@ -68,3 +68,10 @@ class LegalKnowledgeStore(Protocol):
     """Baza wektorowa przepisow: zwraca k najtrafniejszych fragmentow dla zapytania."""
 
     def search(self, query: str, k: int = 5) -> list[RetrievedChunk]: ...
+
+
+@runtime_checkable
+class Reranker(Protocol):
+    """Przeszereguj dokumenty wzgledem zapytania. Zwraca (indeks_oryginalny, score) malejaco."""
+
+    def rerank(self, query: str, documents: list[str], top_k: int) -> list[tuple[int, float]]: ...
