@@ -15,6 +15,7 @@ _SRC = str(Path(__file__).resolve().parents[2])
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
+from invoicer.observability_langsmith import init_langsmith  # noqa: E402
 from invoicer.runner import (  # noqa: E402
     build_demo_graph,
     document_from_upload,
@@ -24,6 +25,7 @@ from invoicer.runner import (  # noqa: E402
 from invoicer.security import install_redaction  # noqa: E402
 
 install_redaction()  # scrubuje PII ze wszystkich logow invoicera (idempotentne)
+init_langsmith()  # tracing per-faktura w LangSmith gdy ustawiony LANGSMITH_API_KEY (inaczej no-op)
 
 st.set_page_config(page_title="INVOICER // intake", page_icon="🛰️", layout="centered")
 
