@@ -19,8 +19,10 @@ from invoicer.ledger import Ledger
 from invoicer.models import (
     Check,
     CheckStatus,
+    Citation,
     Classification,
     CountryBucket,
+    GroundingStatus,
     Invoice,
     InvoiceDocument,
     LineItem,
@@ -29,6 +31,7 @@ from invoicer.models import (
     ValidationResult,
 )
 from invoicer.ports import EmailSource, InvoiceDetector
+from invoicer.rag.models import RetrievedChunk
 from invoicer.state import InvoiceState
 
 # Typy wstawiane do stanu grafu (InvoiceState) — jawnie rejestrowane w serializerze
@@ -47,6 +50,9 @@ _CHECKPOINT_ALLOWED_TYPES = (
     CountryBucket,
     TaxTreatment,
     BookingResult,
+    Citation,
+    GroundingStatus,
+    RetrievedChunk,
 )
 
 
