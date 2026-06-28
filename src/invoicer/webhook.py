@@ -6,7 +6,7 @@ import hmac
 import logging
 from collections.abc import Callable
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from invoicer.approval_links import verify_decision
@@ -103,11 +103,27 @@ def create_inbound_app(
         )
         return HTMLResponse(html, status_code=status)
 
-    def _handle_decision(thread_id: str, decision: str, token: str) -> HTMLResponse:
-        # Tap-to-approve: link niesie thread_id, token HMAC autoryzuje DOKLADNIE te decyzje.
-        if not link_secret or not verify_decision(link_secret, thread_id, decision, token):
-            _logger.warning("odrzucono link decyzji: niepoprawny token (%s)", decision)
-            return _page("❌ Niepoprawny link", "Token nieprawidlowy lub wygasl.", status=403)
+    def _authorized(thread_id: str, decision: str, token: str) -> bool:
+        return bool(link_secret) and verify_decision(link_secret, thread_id, decision, token)
+
+    def _confirm_page(thread_id: str, decision: str, token: str) -> HTMLResponse:
+        # GET pokazuje TYLKO formularz — NIE ksieguje. Klucz bezpieczenstwa: link-preview
+        # WhatsAppa i skanery linkow robia automatyczny GET; akcja jest dopiero pod POST.
+        if decision == "approve":
+            question, label = "Zaksiegowac te fakture w Fakturowni?", "✅ Tak, zaksieguj"
+        else:
+            question, label = "Odrzucic te fakture?", "❌ Tak, odrzuc"
+        body = (
+            f"{question}"
+            f"<form method='post' action='/{decision}/{thread_id}' style='margin-top:1.2rem'>"
+            f"<input type='hidden' name='t' value='{token}'>"
+            "<button type='submit' style='font-size:1.1rem;padding:.7rem 1.5rem;cursor:pointer'>"
+            f"{label}</button></form>"
+        )
+        return _page("Potwierdz decyzje", body)
+
+    def _do_decision(thread_id: str, decision: str) -> HTMLResponse:
+        # Realna akcja (POST): wznawia graf -> ksiegowanie. Token sprawdzony przez wolajacego.
         try:
             resume(graph, thread_id=thread_id, decision=decision)
         except Exception as exc:  # noqa: BLE001 - przyjazna strona zamiast 500; bez PII
@@ -122,12 +138,39 @@ def create_inbound_app(
             return _page("✅ Zatwierdzono", "Faktura trafila do ksiegowania (Fakturownia).")
         return _page("❌ Odrzucono", "Faktura nie zostala zaksiegowana.")
 
+    def _bad_link() -> HTMLResponse:
+        return _page("❌ Niepoprawny link", "Token nieprawidlowy lub wygasl.", status=403)
+
     @app.get("/approve/{thread_id}", response_class=HTMLResponse)
-    def approve(thread_id: str, t: str = "") -> HTMLResponse:
-        return _handle_decision(thread_id, "approve", t)
+    def approve_get(thread_id: str, t: str = "") -> HTMLResponse:
+        return (
+            _confirm_page(thread_id, "approve", t)
+            if _authorized(thread_id, "approve", t)
+            else _bad_link()
+        )
 
     @app.get("/reject/{thread_id}", response_class=HTMLResponse)
-    def reject(thread_id: str, t: str = "") -> HTMLResponse:
-        return _handle_decision(thread_id, "reject", t)
+    def reject_get(thread_id: str, t: str = "") -> HTMLResponse:
+        return (
+            _confirm_page(thread_id, "reject", t)
+            if _authorized(thread_id, "reject", t)
+            else _bad_link()
+        )
+
+    @app.post("/approve/{thread_id}", response_class=HTMLResponse)
+    def approve_post(thread_id: str, t: str = Form("")) -> HTMLResponse:
+        return (
+            _do_decision(thread_id, "approve")
+            if _authorized(thread_id, "approve", t)
+            else _bad_link()
+        )
+
+    @app.post("/reject/{thread_id}", response_class=HTMLResponse)
+    def reject_post(thread_id: str, t: str = Form("")) -> HTMLResponse:
+        return (
+            _do_decision(thread_id, "reject")
+            if _authorized(thread_id, "reject", t)
+            else _bad_link()
+        )
 
     return app

@@ -12,7 +12,7 @@ primary_region = 'ams'
   release_command = "uv run --no-sync python scripts/ingest_legal_corpus.py"
 
 [env]
-  INTAKE_INTERVAL_MINUTES = '5'
+  INTAKE_INTERVAL_MINUTES = '1'
   INVOICER_DATA_DIR = '/data'
   PORT = '8080'
   PUBLIC_BASE_URL = 'https://invoicer-app-mellowing-fire-1915.fly.dev'

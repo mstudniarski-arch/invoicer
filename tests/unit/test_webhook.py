@@ -154,85 +154,94 @@ def test_inbound_accepts_valid_signature_and_resumes():
     assert resumes == [("t1", "approve")]
 
 
-def test_approve_link_resumes_and_shows_confirmation():
-    from invoicer.approval_links import sign_decision
+def _decision_app(resume, secret="K"):
+    return create_inbound_app(
+        graph=object(), registry=_FakeRegistry({}), resume=resume, link_secret=secret
+    )
 
-    resumes: list = []
+
+def _recorder():
+    calls: list = []
 
     def _resume(graph, *, thread_id, decision):
-        resumes.append((thread_id, decision))
+        calls.append((thread_id, decision))
 
-    app = create_inbound_app(
-        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
-    )
+    return _resume, calls
+
+
+def test_get_approve_shows_confirm_form_and_does_NOT_book():
+    # KLUCZOWE: GET nie moze ksiegowac — link-preview WhatsAppa / skanery robia auto-GET.
+    from invoicer.approval_links import sign_decision
+
+    resume, calls = _recorder()
+    app = _decision_app(resume)
     tok = sign_decision("K", "t-1", "approve")
     r = TestClient(app).get(f"/approve/t-1?t={tok}")
     assert r.status_code == 200
-    assert resumes == [("t-1", "approve")]
+    assert calls == []  # zaden resume/booking na GET
+    body = r.text.lower()
+    assert "<form" in body and "post" in body  # tylko formularz POST do potwierdzenia
+    assert "t-1" in r.text
+
+
+def test_get_approve_invalid_token_403():
+    resume, calls = _recorder()
+    r = TestClient(_decision_app(resume)).get("/approve/t-1?t=bad")
+    assert r.status_code == 403
+    assert calls == []
+
+
+def test_post_approve_books_with_valid_token():
+    from invoicer.approval_links import sign_decision
+
+    resume, calls = _recorder()
+    app = _decision_app(resume)
+    tok = sign_decision("K", "t-1", "approve")
+    r = TestClient(app).post("/approve/t-1", data={"t": tok})
+    assert r.status_code == 200
+    assert calls == [("t-1", "approve")]
     assert "Zatwierdz" in r.text
 
 
-def test_reject_link_resumes_reject():
+def test_post_reject_rejects_with_valid_token():
     from invoicer.approval_links import sign_decision
 
-    resumes: list = []
-
-    def _resume(graph, *, thread_id, decision):
-        resumes.append((thread_id, decision))
-
-    app = create_inbound_app(
-        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
-    )
+    resume, calls = _recorder()
+    app = _decision_app(resume)
     tok = sign_decision("K", "t-1", "reject")
-    r = TestClient(app).get(f"/reject/t-1?t={tok}")
-    assert r.status_code == 200
-    assert resumes == [("t-1", "reject")]
+    TestClient(app).post("/reject/t-1", data={"t": tok})
+    assert calls == [("t-1", "reject")]
 
 
-def test_decision_link_rejects_invalid_token():
-    resumes: list = []
-
-    def _resume(graph, *, thread_id, decision):
-        resumes.append((thread_id, decision))
-
-    app = create_inbound_app(
-        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
-    )
-    r = TestClient(app).get("/approve/t-1?t=bad")
+def test_post_approve_invalid_token_403_no_book():
+    resume, calls = _recorder()
+    r = TestClient(_decision_app(resume)).post("/approve/t-1", data={"t": "bad"})
     assert r.status_code == 403
-    assert resumes == []
+    assert calls == []
 
 
-def test_approve_token_cannot_be_replayed_on_reject_route():
+def test_post_approve_token_cannot_be_replayed_on_reject():
     from invoicer.approval_links import sign_decision
 
-    resumes: list = []
-
-    def _resume(graph, *, thread_id, decision):
-        resumes.append((thread_id, decision))
-
-    app = create_inbound_app(
-        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
-    )
+    resume, calls = _recorder()
+    app = _decision_app(resume)
     approve_tok = sign_decision("K", "t-1", "approve")
-    r = TestClient(app).get(f"/reject/t-1?t={approve_tok}")
+    r = TestClient(app).post("/reject/t-1", data={"t": approve_tok})
     assert r.status_code == 403
-    assert resumes == []
+    assert calls == []
 
 
-def test_decision_link_resume_failure_shows_friendly_page_without_pii():
+def test_post_decision_resume_failure_friendly_page_without_pii():
     from invoicer.approval_links import sign_decision
 
     def _boom(graph, *, thread_id, decision):
         raise RuntimeError("ksiegowanie padlo dla NIP 5260001246")
 
-    app = create_inbound_app(
-        graph=object(), registry=_FakeRegistry({}), resume=_boom, link_secret="K"
-    )
+    app = _decision_app(_boom)
     tok = sign_decision("K", "t-1", "approve")
-    r = TestClient(app).get(f"/approve/t-1?t={tok}")
+    r = TestClient(app).post("/approve/t-1", data={"t": tok})
     assert r.status_code == 200  # przyjazna strona, nie 500
-    assert "5260001246" not in r.text  # PII z wyjatku nie wycieka na strone
+    assert "5260001246" not in r.text  # PII nie wycieka
 
 
 def test_inbound_calls_on_resume_failure_and_returns_2xx():
