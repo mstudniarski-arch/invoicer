@@ -178,6 +178,7 @@ def test_request_invoice_approval_registers_and_sends(tmp_path):
     )
     assert payload["number"] == "FV/1"
     assert channel.sent == [payload]  # request wyslany z payloadem (sprzedawca/NIP/kwota)
+    assert channel.thread_ids == ["w1"]  # thread_id przekazany do kanalu (do linkow tap)
     assert registry.resolve_oldest("whatsapp:+48500") == "w1"  # zarejestrowany pending
 
 

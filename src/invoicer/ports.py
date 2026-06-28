@@ -25,7 +25,7 @@ class AccountingSink(Protocol):
 class ApprovalChannel(Protocol):
     """Kanal akceptacji: wysyla do czlowieka request zatwierdzenia faktury."""
 
-    def request_approval(self, payload: dict) -> None: ...
+    def request_approval(self, payload: dict, *, thread_id: str | None = None) -> None: ...
 
 
 @runtime_checkable

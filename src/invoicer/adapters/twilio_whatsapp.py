@@ -31,16 +31,22 @@ class TwilioUndelivered(TwilioError):
         super().__init__(message)
 
 
-def format_approval_message(payload: dict) -> str:
-    """Tresc requestu akceptacji na WhatsApp: sprzedawca, NIP, kwota + instrukcja TAK/NIE."""
-    return (
+def format_approval_message(payload: dict, *, links: dict | None = None) -> str:
+    """Tresc requestu akceptacji na WhatsApp: sprzedawca, NIP, kwota + sposob decyzji.
+
+    Gdy podano `links` (tap-to-approve), dokleja dwa linki ✅/❌ celujace w nasza apke
+    (klikasz zamiast odpisywac — nie trzeba webhooka Twilio). Bez nich: fallback TAK/NIE.
+    """
+    base = (
         f"🧾 Faktura {payload['number']}\n"
         f"Od: {payload['seller']}\n"
         f"NIP: {payload.get('seller_nip') or '—'}\n"
         f"Kwota: {payload['total_gross']} {payload['currency']}\n"
-        f"Traktowanie: {payload.get('treatment', '—')}\n"
-        f"Odpowiedz TAK (zatwierdz) lub NIE (odrzuc)."
+        f"Traktowanie: {payload.get('treatment', '—')}"
     )
+    if links:
+        return base + f"\n\n✅ Zatwierdz: {links['approve']}\n❌ Odrzuc: {links['reject']}"
+    return base + "\nOdpowiedz TAK (zatwierdz) lub NIE (odrzuc)."
 
 
 def _redact_sid(text: str, sid: str) -> str:
@@ -65,12 +71,16 @@ class TwilioWhatsAppChannel:
         auth_token: str,
         from_whatsapp: str,
         to_whatsapp: str,
+        base_url: str | None = None,
+        link_secret: str | None = None,
     ) -> None:
         self._client = client
         self._sid = account_sid
         self._token = auth_token
         self._from = from_whatsapp
         self._to = to_whatsapp
+        self._base_url = base_url
+        self._link_secret = link_secret
 
     def _messages_url(self) -> str:
         return f"https://api.twilio.com/2010-04-01/Accounts/{self._sid}/Messages.json"
@@ -128,12 +138,18 @@ class TwilioWhatsAppChannel:
         self,
         payload: dict,
         *,
+        thread_id: str | None = None,
         confirm_delivery: bool = True,
         poll_attempts: int = 6,
         poll_interval: float = 2.0,
         sleep=time.sleep,
     ) -> None:
-        sid = self._post_message(format_approval_message(payload))
+        links = None
+        if thread_id and self._base_url and self._link_secret:
+            from invoicer.approval_links import build_decision_links
+
+            links = build_decision_links(self._base_url, thread_id, self._link_secret)
+        sid = self._post_message(format_approval_message(payload, links=links))
         if confirm_delivery and sid:
             self._confirm_delivery(sid, attempts=poll_attempts, interval=poll_interval, sleep=sleep)
 
@@ -152,4 +168,7 @@ def build_twilio_whatsapp_channel() -> TwilioWhatsAppChannel:
         auth_token=os.environ["TWILIO_AUTH_TOKEN"],
         from_whatsapp=os.environ["TWILIO_WHATSAPP_FROM"],
         to_whatsapp=os.environ["APPROVER_WHATSAPP_TO"],
+        base_url=os.getenv("PUBLIC_BASE_URL"),
+        # sekret podpisu linkow; bez dedykowanego — fallback na TWILIO_AUTH_TOKEN (zawsze jest)
+        link_secret=os.getenv("APPROVAL_LINK_SECRET") or os.getenv("TWILIO_AUTH_TOKEN"),
     )

@@ -154,6 +154,87 @@ def test_inbound_accepts_valid_signature_and_resumes():
     assert resumes == [("t1", "approve")]
 
 
+def test_approve_link_resumes_and_shows_confirmation():
+    from invoicer.approval_links import sign_decision
+
+    resumes: list = []
+
+    def _resume(graph, *, thread_id, decision):
+        resumes.append((thread_id, decision))
+
+    app = create_inbound_app(
+        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
+    )
+    tok = sign_decision("K", "t-1", "approve")
+    r = TestClient(app).get(f"/approve/t-1?t={tok}")
+    assert r.status_code == 200
+    assert resumes == [("t-1", "approve")]
+    assert "Zatwierdz" in r.text
+
+
+def test_reject_link_resumes_reject():
+    from invoicer.approval_links import sign_decision
+
+    resumes: list = []
+
+    def _resume(graph, *, thread_id, decision):
+        resumes.append((thread_id, decision))
+
+    app = create_inbound_app(
+        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
+    )
+    tok = sign_decision("K", "t-1", "reject")
+    r = TestClient(app).get(f"/reject/t-1?t={tok}")
+    assert r.status_code == 200
+    assert resumes == [("t-1", "reject")]
+
+
+def test_decision_link_rejects_invalid_token():
+    resumes: list = []
+
+    def _resume(graph, *, thread_id, decision):
+        resumes.append((thread_id, decision))
+
+    app = create_inbound_app(
+        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
+    )
+    r = TestClient(app).get("/approve/t-1?t=bad")
+    assert r.status_code == 403
+    assert resumes == []
+
+
+def test_approve_token_cannot_be_replayed_on_reject_route():
+    from invoicer.approval_links import sign_decision
+
+    resumes: list = []
+
+    def _resume(graph, *, thread_id, decision):
+        resumes.append((thread_id, decision))
+
+    app = create_inbound_app(
+        graph=object(), registry=_FakeRegistry({}), resume=_resume, link_secret="K"
+    )
+    approve_tok = sign_decision("K", "t-1", "approve")
+    r = TestClient(app).get(f"/reject/t-1?t={approve_tok}")
+    assert r.status_code == 403
+    assert resumes == []
+
+
+def test_decision_link_resume_failure_shows_friendly_page_without_pii():
+    from invoicer.approval_links import sign_decision
+
+    def _boom(graph, *, thread_id, decision):
+        raise RuntimeError("ksiegowanie padlo dla NIP 5260001246")
+
+    app = create_inbound_app(
+        graph=object(), registry=_FakeRegistry({}), resume=_boom, link_secret="K"
+    )
+    tok = sign_decision("K", "t-1", "approve")
+    r = TestClient(app).get(f"/approve/t-1?t={tok}")
+    assert r.status_code == 200  # przyjazna strona, nie 500
+    assert "5260001246" not in r.text  # PII z wyjatku nie wycieka na strone
+
+
 def test_inbound_calls_on_resume_failure_and_returns_2xx():
     from fastapi.testclient import TestClient
 

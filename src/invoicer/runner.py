@@ -200,7 +200,7 @@ def request_invoice_approval(graph, channel, registry, document, *, thread_id: s
     if payload is None:
         return None
     registry.add(thread_id, phone)
-    channel.request_approval(payload)
+    channel.request_approval(payload, thread_id=thread_id)
     return payload
 
 

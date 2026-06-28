@@ -58,6 +58,45 @@ def _channel(http: _FakeHttp) -> TwilioWhatsAppChannel:
     )
 
 
+def test_format_message_includes_tap_links_when_provided():
+    from invoicer.adapters.twilio_whatsapp import format_approval_message
+
+    links = {
+        "approve": "https://app.fly.dev/approve/t1?t=aa",
+        "reject": "https://app.fly.dev/reject/t1?t=bb",
+    }
+    msg = format_approval_message(_PAYLOAD, links=links)
+    assert "https://app.fly.dev/approve/t1?t=aa" in msg
+    assert "https://app.fly.dev/reject/t1?t=bb" in msg
+    assert "Zatwierdz" in msg
+
+
+def test_format_message_falls_back_to_tak_nie_without_links():
+    from invoicer.adapters.twilio_whatsapp import format_approval_message
+
+    msg = format_approval_message(_PAYLOAD)
+    assert "TAK" in msg and "NIE" in msg
+
+
+def test_request_approval_body_carries_signed_tap_links():
+    from invoicer.approval_links import sign_decision
+
+    http = _FakeHttp(_FakeResponse(201, text='{"sid":"SM1"}'))
+    channel = TwilioWhatsAppChannel(
+        http,
+        account_sid="ACx",
+        auth_token="tok",
+        from_whatsapp="whatsapp:+1415",
+        to_whatsapp="whatsapp:+48999",
+        base_url="https://app.fly.dev",
+        link_secret="K",
+    )
+    channel.request_approval(_PAYLOAD, thread_id="t-1", confirm_delivery=False)
+    _, data, _ = http.calls[0]
+    tok = sign_decision("K", "t-1", "approve")
+    assert f"https://app.fly.dev/approve/t-1?t={tok}" in data["Body"]
+
+
 def test_notify_posts_message_to_twilio():
     http = _FakeHttp(_FakeResponse(201))
     _channel(http).notify("⚠️ Faktura FV/1: ekstrakcja padla")

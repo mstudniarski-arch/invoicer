@@ -161,12 +161,17 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     # webhook (reuzycie logiki Planu B) + dodatkowe endpointy.
     # Walidacja podpisu Twilio aktywna w prod gdy ustawiony WEBHOOK_PUBLIC_URL (+ token);
     # w test_mode wylaczona, by testy nie musialy podpisywac zadan.
+    # link_secret: podpis linkow tap-to-approve (/approve,/reject); fallback na TWILIO_AUTH_TOKEN.
+    link_secret = None
+    if not settings.test_mode:
+        link_secret = os.getenv("APPROVAL_LINK_SECRET") or os.getenv("TWILIO_AUTH_TOKEN")
     app = create_inbound_app(
         graph,
         registry,
         on_resume_failure=on_resume_failure,
         twilio_auth_token=None if settings.test_mode else os.getenv("TWILIO_AUTH_TOKEN"),
         public_url=None if settings.test_mode else os.getenv("WEBHOOK_PUBLIC_URL"),
+        link_secret=link_secret,
     )
 
     @app.get("/health")
