@@ -7,8 +7,7 @@ from invoicer.ports import Embedder
 from invoicer.rag.corpus import Chunk
 from invoicer.rag.models import RetrievedChunk
 
-_DDL = """
-CREATE EXTENSION IF NOT EXISTS vector;
+_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS {table} (
     content_hash TEXT PRIMARY KEY,
     source_id    TEXT NOT NULL,
@@ -54,9 +53,14 @@ class PgVectorLegalStore:
             import psycopg
             from pgvector.psycopg import register_vector
 
-            self._conn = psycopg.connect(self._dsn or os.environ["DATABASE_URL"], autocommit=True)
-            register_vector(self._conn)
-            self._conn.execute(_DDL.format(table=self._table, dim=self._dim))
+            conn = psycopg.connect(self._dsn or os.environ["DATABASE_URL"], autocommit=True)
+            # KOLEJNOSC ma znaczenie: rozszerzenie musi istniec ZANIM register_vector odpyta
+            # baze o typ `vector` — inaczej na swiezej bazie (nowy projekt Supabase) register
+            # wywalilby sie, zanim DDL zdazyl utworzyc rozszerzenie.
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            register_vector(conn)
+            conn.execute(_TABLE_DDL.format(table=self._table, dim=self._dim))
+            self._conn = conn
         return self._conn
 
     def existing_hashes(self) -> set[str]:
