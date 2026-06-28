@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,8 +39,40 @@ class AppSettings:
     approver_phone: str
     gmail_sender: str
     intake_interval_minutes: int = 5
+    gmail_lookback_days: int = 3
     data_dir: Path = Path("/data")
     test_mode: bool = False  # True w testach: stuby + scheduler nie startuje
+
+
+_REQUIRED_CORE_ENV = (
+    "ANTHROPIC_API_KEY",  # extractor / reasoner / detector
+    "GMAIL_SENDER_FILTER",  # zaciag z Gmaila
+    "TWILIO_ACCOUNT_SID",  # kanal akceptacji WhatsApp
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_WHATSAPP_FROM",
+    "APPROVER_WHATSAPP_TO",
+)
+
+
+def preflight_env(env: Mapping[str, str]) -> None:
+    """Fail-fast walidacja konfiguracji na starcie: lepiej paść czytelnie przy boocie niz
+
+    cicho dopiero przy pierwszej fakturze. Sprawdza komplet sekretow rdzennych oraz
+    zaleznosci warunkowe (Fakturownia gdy INVOICER_SINK=fakturownia; VOYAGE_API_KEY gdy
+    ustawiony DATABASE_URL — inaczej pgvector/RAG byloby cicho wylaczone). GMAIL_TOKEN_B64
+    nie jest wymagane: token moze juz lezec na wolumenie (/data/token.json).
+    """
+    missing = [k for k in _REQUIRED_CORE_ENV if not env.get(k)]
+    if env.get("INVOICER_SINK", "").lower() == "fakturownia":
+        missing += [k for k in ("FAKTUROWNIA_API_TOKEN", "FAKTUROWNIA_DOMAIN") if not env.get(k)]
+    if env.get("DATABASE_URL") and not env.get("VOYAGE_API_KEY"):
+        missing.append("VOYAGE_API_KEY")
+    if missing:
+        raise RuntimeError(
+            "Brak/niepelna konfiguracja srodowiska: "
+            + ", ".join(missing)
+            + " — ustaw przez `fly secrets set ...` przed startem."
+        )
 
 
 def _settings_from_env() -> AppSettings:
@@ -47,6 +80,7 @@ def _settings_from_env() -> AppSettings:
         approver_phone=os.environ["APPROVER_WHATSAPP_TO"],
         gmail_sender=os.environ["GMAIL_SENDER_FILTER"],
         intake_interval_minutes=int(os.getenv("INTAKE_INTERVAL_MINUTES", "5")),
+        gmail_lookback_days=int(os.getenv("GMAIL_LOOKBACK_DAYS", "3")),
         data_dir=Path(os.getenv("INVOICER_DATA_DIR", "/data")),
     )
 
@@ -88,7 +122,9 @@ def _build_test_graph(settings: AppSettings, checkpointer):
 
 def create_app(*, settings: AppSettings | None = None) -> FastAPI:
     """Fabryka aplikacji: durable graf + registry + webhook + /health + /status + scheduler."""
-    settings = settings or _settings_from_env()
+    if settings is None:  # produkcja (uvicorn factory): walidacja env zanim cokolwiek zbudujemy
+        preflight_env(os.environ)
+        settings = _settings_from_env()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -122,8 +158,16 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
         else _build_real_graph(settings, checkpointer, metrics)
     )
 
-    # webhook (reuzycie logiki Planu B) + dodatkowe endpointy
-    app = create_inbound_app(graph, registry, on_resume_failure=on_resume_failure)
+    # webhook (reuzycie logiki Planu B) + dodatkowe endpointy.
+    # Walidacja podpisu Twilio aktywna w prod gdy ustawiony WEBHOOK_PUBLIC_URL (+ token);
+    # w test_mode wylaczona, by testy nie musialy podpisywac zadan.
+    app = create_inbound_app(
+        graph,
+        registry,
+        on_resume_failure=on_resume_failure,
+        twilio_auth_token=None if settings.test_mode else os.getenv("TWILIO_AUTH_TOKEN"),
+        public_url=None if settings.test_mode else os.getenv("WEBHOOK_PUBLIC_URL"),
+    )
 
     @app.get("/health")
     def health() -> dict:
@@ -150,7 +194,7 @@ def create_app(*, settings: AppSettings | None = None) -> FastAPI:
                 graph,
                 channel,
                 registry,
-                GmailAdapter(service),
+                GmailAdapter(service, lookback_days=settings.gmail_lookback_days),
                 ClaudeInvoiceDetector(
                     callbacks=[LlmMetricsCallback(metrics, model=_METRICS_MODEL)]
                 ),

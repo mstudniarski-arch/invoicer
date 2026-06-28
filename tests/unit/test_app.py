@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
-from invoicer.app import AppSettings, create_app
+from invoicer.app import AppSettings, create_app, preflight_env
+
+_FULL_ENV = {
+    "ANTHROPIC_API_KEY": "sk-test",
+    "GMAIL_SENDER_FILTER": "owner@example.com",
+    "TWILIO_ACCOUNT_SID": "ACxxxxxxxx",
+    "TWILIO_AUTH_TOKEN": "tok",
+    "TWILIO_WHATSAPP_FROM": "whatsapp:+1",
+    "APPROVER_WHATSAPP_TO": "whatsapp:+2",
+}
 
 
 def _settings(tmp_path) -> AppSettings:
@@ -54,6 +64,37 @@ def test_inbound_ignored_for_unknown_body(tmp_path):
             data={"From": "whatsapp:+48111", "Body": "?"},
         )
         assert r.json() == {"status": "ignored"}
+
+
+def test_preflight_passes_with_full_required_env():
+    preflight_env(_FULL_ENV)  # komplet sekretow -> brak wyjatku
+
+
+def test_preflight_reports_all_missing_core_secrets():
+    with pytest.raises(RuntimeError) as exc:
+        preflight_env({})
+    msg = str(exc.value)
+    for key in (
+        "ANTHROPIC_API_KEY",
+        "GMAIL_SENDER_FILTER",
+        "TWILIO_AUTH_TOKEN",
+        "APPROVER_WHATSAPP_TO",
+    ):
+        assert key in msg
+
+
+def test_preflight_requires_fakturownia_creds_when_sink_is_fakturownia():
+    env = dict(_FULL_ENV, INVOICER_SINK="fakturownia")
+    with pytest.raises(RuntimeError) as exc:
+        preflight_env(env)
+    assert "FAKTUROWNIA_API_TOKEN" in str(exc.value)
+
+
+def test_preflight_requires_voyage_key_when_database_url_set():
+    env = dict(_FULL_ENV, DATABASE_URL="postgresql://x")
+    with pytest.raises(RuntimeError) as exc:
+        preflight_env(env)
+    assert "VOYAGE_API_KEY" in str(exc.value)
 
 
 def test_sentry_not_initialized_in_test_mode(tmp_path, monkeypatch):

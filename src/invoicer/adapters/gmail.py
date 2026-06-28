@@ -9,16 +9,17 @@ from invoicer.models import InvoiceDocument
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def _build_query(sender: str, *, today: date) -> str:
-    """Zapytanie Gmail: NIEPRZECZYTANE PDF-y od nadawcy z DZIS (after..before, dzien kalendarzowy).
+def _build_query(sender: str, *, today: date, lookback_days: int = 3) -> str:
+    """Zapytanie Gmail: NIEPRZECZYTANE PDF-y od nadawcy z OKNA `lookback_days` dni (do dzis).
 
-    is:unread + dzien kalendarzowy: skupiamy sie tylko na swiezych mailach jeszcze nie
-    obejrzanych w Gmailu. Kontrakt: nie otwieraj faktur poza Invoicerem (web/telefon
-    oznaczenie przeczytanym ukrywa je przed flow). Dedup (ProcessedDocuments) chroni
-    przed podwojnym przetworzeniem w jednym oknie.
+    Okno wsteczne (domyslnie 3 dni), a nie "tylko dzis": przestoj workera (restart, awaria,
+    noc) NIE moze zgubic faktury — przy oknie jednodniowym mail sprzed restartu wypadlby poza
+    zakres na zawsze. is:unread + dedup (ProcessedDocuments) chronia przed powtornym
+    przetworzeniem tych samych maili w szerszym oknie. Kontrakt: nie otwieraj faktur poza
+    Invoicerem (oznaczenie przeczytanym w web/telefonie ukrywa je przed flow).
     """
     token = f'"{sender}"' if (" " in sender or "<" in sender) else sender
-    after = today.strftime("%Y/%m/%d")
+    after = (today - timedelta(days=lookback_days - 1)).strftime("%Y/%m/%d")
     before = (today + timedelta(days=1)).strftime("%Y/%m/%d")
     return f"from:{token} after:{after} before:{before} has:attachment filename:pdf is:unread"
 
@@ -72,13 +73,14 @@ class GmailAdapter:
     Pobiera wiadomosci od `sender` z zalacznikami PDF i mapuje je na InvoiceDocument.
     """
 
-    def __init__(self, service, *, user_id: str = "me") -> None:
+    def __init__(self, service, *, user_id: str = "me", lookback_days: int = 3) -> None:
         self._service = service
         self._user_id = user_id
+        self._lookback_days = lookback_days
 
     def fetch(self, sender: str, *, today: date | None = None) -> list[InvoiceDocument]:
         messages = self._service.users().messages()
-        query = _build_query(sender, today=today or date.today())
+        query = _build_query(sender, today=today or date.today(), lookback_days=self._lookback_days)
         docs: list[InvoiceDocument] = []
         page_token: str | None = None
         while True:

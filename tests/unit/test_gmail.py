@@ -17,11 +17,10 @@ def test_scope_is_readonly():
     assert GMAIL_SCOPES == ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def test_build_query_filters_unread_pdf_today_only():
+def test_build_query_filters_unread_pdf_in_lookback_window():
     q = _build_query("a@b.pl", today=date(2026, 6, 25))
     assert (
-        q == "from:a@b.pl after:2026/06/25 before:2026/06/26 "
-        "has:attachment filename:pdf is:unread"
+        q == "from:a@b.pl after:2026/06/23 before:2026/06/26 has:attachment filename:pdf is:unread"
     )
 
 
@@ -67,9 +66,30 @@ def test_iter_pdf_parts_matches_pdf_by_filename_even_if_mime_octet():
 def test_build_query_quotes_sender_with_spaces():
     q = _build_query("Vendor X <v@x.pl>", today=date(2026, 6, 25))
     assert (
-        q == 'from:"Vendor X <v@x.pl>" after:2026/06/25 before:2026/06/26 '
+        q == 'from:"Vendor X <v@x.pl>" after:2026/06/23 before:2026/06/26 '
         "has:attachment filename:pdf is:unread"
     )
+
+
+def test_build_query_covers_lookback_window_default_3_days():
+    # Domyslnie patrzymy 3 dni wstecz: przestoj (nocny/awaria) nie moze zgubic faktury,
+    # bo okno "tylko dzis" pomija maile sprzed restartu. Dedup (ProcessedDocuments) chroni
+    # przed powtornym przetworzeniem tych samych maili w szerszym oknie.
+    q = _build_query("a@b.pl", today=date(2026, 6, 25))
+    assert (
+        q == "from:a@b.pl after:2026/06/23 before:2026/06/26 has:attachment filename:pdf is:unread"
+    )
+
+
+def test_build_query_lookback_days_one_is_single_day():
+    q = _build_query("a@b.pl", today=date(2026, 6, 25), lookback_days=1)
+    assert "after:2026/06/25 before:2026/06/26" in q
+
+
+def test_fetch_uses_adapter_lookback_days():
+    service = _CapturingGmail()
+    GmailAdapter(service, lookback_days=2).fetch("a@b.pl", today=date(2026, 6, 25))
+    assert "after:2026/06/24 before:2026/06/26" in service.msgs.queries[0]
 
 
 def test_b64url_decode_roundtrips_and_handles_empty():
@@ -267,9 +287,9 @@ class _CapturingGmail:
         return self._users
 
 
-def test_fetch_query_filters_today_and_unread():
+def test_fetch_query_filters_lookback_window_and_unread():
     service = _CapturingGmail()
     GmailAdapter(service).fetch("a@b.pl", today=date(2026, 6, 25))
     assert service.msgs.queries[0] == (
-        "from:a@b.pl after:2026/06/25 before:2026/06/26 has:attachment filename:pdf is:unread"
+        "from:a@b.pl after:2026/06/23 before:2026/06/26 has:attachment filename:pdf is:unread"
     )

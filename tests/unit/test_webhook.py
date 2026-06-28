@@ -89,6 +89,71 @@ def test_inbound_resume_failure_returns_resume_failed():
     assert "5260001246" not in resp.text
 
 
+def test_compute_twilio_signature_matches_documented_vector():
+    # Wektor referencyjny z dokumentacji Twilio (Security / validating signatures) —
+    # dowodzi, ze nasz HMAC-SHA1 + base64 liczy DOKLADNIE to, czego oczekuje Twilio.
+    from invoicer.webhook import compute_twilio_signature
+
+    url = "https://mycompany.com/myapp.php?foo=1&bar=2"
+    params = {
+        "CallSid": "CA1234567890ABCDE",
+        "Caller": "+14158675309",
+        "Digits": "1234",
+        "From": "+14158675309",
+        "To": "+18005551212",
+    }
+    # Wartosc potwierdzona niezaleznym oraclem: openssl dgst -sha1 -hmac 12345 | base64.
+    assert compute_twilio_signature("12345", url, params) == "RSOYDt4T1cUTdK1PDd93/VVr8B8="
+
+
+def test_inbound_rejects_request_without_valid_signature():
+    # Walidacja wlaczona (token + public_url) -> brak/zly podpis = 403, ZADNEGO resume.
+    reg = _FakeRegistry({"whatsapp:+48500": "t1"})
+    resumes: list = []
+
+    def _resume(graph, *, thread_id, decision):
+        resumes.append((thread_id, decision))
+
+    app = create_inbound_app(
+        graph=object(),
+        registry=reg,
+        resume=_resume,
+        twilio_auth_token="secret",
+        public_url="https://app.fly.dev/whatsapp/inbound",
+    )
+    resp = TestClient(app).post(
+        "/whatsapp/inbound", data={"From": "whatsapp:+48500", "Body": "TAK"}
+    )
+    assert resp.status_code == 403
+    assert resumes == []
+
+
+def test_inbound_accepts_valid_signature_and_resumes():
+    from invoicer.webhook import compute_twilio_signature
+
+    reg = _FakeRegistry({"whatsapp:+48500": "t1"})
+    resumes: list = []
+
+    def _resume(graph, *, thread_id, decision):
+        resumes.append((thread_id, decision))
+
+    url = "https://app.fly.dev/whatsapp/inbound"
+    app = create_inbound_app(
+        graph=object(),
+        registry=reg,
+        resume=_resume,
+        twilio_auth_token="secret",
+        public_url=url,
+    )
+    params = {"From": "whatsapp:+48500", "Body": "TAK"}
+    sig = compute_twilio_signature("secret", url, params)
+    resp = TestClient(app).post(
+        "/whatsapp/inbound", data=params, headers={"X-Twilio-Signature": sig}
+    )
+    assert resp.json()["status"] == "resumed"
+    assert resumes == [("t1", "approve")]
+
+
 def test_inbound_calls_on_resume_failure_and_returns_2xx():
     from fastapi.testclient import TestClient
 

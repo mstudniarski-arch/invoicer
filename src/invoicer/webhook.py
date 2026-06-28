@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
 from collections.abc import Callable
 
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 
 from invoicer.runner import resume_document
 from invoicer.security import redact_pii
@@ -24,12 +28,26 @@ def parse_decision(body: str) -> str | None:
     return None
 
 
+def compute_twilio_signature(auth_token: str, url: str, params: dict[str, str]) -> str:
+    """Podpis X-Twilio-Signature: base64(HMAC-SHA1(auth_token, url + posortowane k+v)).
+
+    Zgodne ze specyfikacja Twilio (form-encoded POST): do pelnego URL-a docelowego
+    doczepia sie wartosci parametrow posortowane po kluczu (klucz+wartosc, bez separatorow),
+    a calosc podpisuje HMAC-SHA1 tokenem konta i koduje base64.
+    """
+    signed = url + "".join(f"{k}{params[k]}" for k in sorted(params))
+    digest = hmac.new(auth_token.encode("utf-8"), signed.encode("utf-8"), hashlib.sha1).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
 def create_inbound_app(
     graph,
     registry,
     *,
     resume=resume_document,
     on_resume_failure: Callable[[str, Exception], None] | None = None,
+    twilio_auth_token: str | None = None,
+    public_url: str | None = None,
 ) -> FastAPI:
     """FastAPI z webhookiem Twilio (POST /whatsapp/inbound).
 
@@ -37,17 +55,29 @@ def create_inbound_app(
     bierze najstarszy pending thread dla numeru (registry) i wznawia graf (resume).
     `resume` wstrzykiwany (CI: fake; domyslnie resume_document).
 
-    Uwaga: walidacja podpisu Twilio (X-Twilio-Signature) celowo pominieta w MVP (spec sek. 7);
-    endpoint wznawia tylko ISTNIEJACE pending dla danego numeru.
+    Walidacja podpisu: gdy podano `twilio_auth_token` ORAZ `public_url`, kazde zadanie
+    musi miec poprawny naglowek X-Twilio-Signature (inaczej 403). Chroni PUBLICZNY endpoint
+    przed sfalszowanym 'TAK', ktory zaksiegowalby realny koszt. Bez tych dwoch wartosci
+    walidacja jest wylaczona (lokalne/CI). `public_url` musi byc dokladnym, publicznym URL-em
+    pod ktory Twilio wysyla webhook (z https), bo to on jest czescia podpisywanego ciagu.
     """
     app = FastAPI()
+    enforce_signature = bool(twilio_auth_token and public_url)
 
-    @app.post("/whatsapp/inbound")
-    def inbound(From: str = Form(...), Body: str = Form(...)) -> dict:
-        decision = parse_decision(Body)
+    @app.post("/whatsapp/inbound", response_model=None)
+    async def inbound(request: Request) -> Response | dict:
+        form = await request.form()
+        params = {k: str(v) for k, v in form.items()}
+        if enforce_signature:
+            sig = request.headers.get("X-Twilio-Signature", "")
+            expected = compute_twilio_signature(twilio_auth_token, public_url, params)
+            if not (sig and hmac.compare_digest(expected, sig)):
+                _logger.warning("odrzucono webhook: niepoprawny/brak podpisu Twilio")
+                return JSONResponse({"status": "invalid_signature"}, status_code=403)
+        decision = parse_decision(params.get("Body", ""))
         if decision is None:
             return {"status": "ignored"}
-        thread_id = registry.resolve_oldest(From)
+        thread_id = registry.resolve_oldest(params.get("From", ""))
         if thread_id is None:
             return {"status": "no_pending"}
         try:
