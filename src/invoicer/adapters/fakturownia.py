@@ -61,17 +61,25 @@ class FakturowniaSink:
 
     def post(self, payload: BookingPayload) -> BookingResult:
         issue_date = payload.issue_date.isoformat() if payload.issue_date else self._clock()
+        # Faktura kosztowa (income=0): Fakturownia renderuje pola seller_* w sekcji "Nabywca",
+        # a buyer_* w sekcji "Sprzedawca". Zeby na wydruku role byly poprawne, MY (odbiorca,
+        # payload.buyer) idziemy w seller_*, a dostawca z faktury (payload.seller) w buyer_*.
+        recipient = payload.buyer  # nasza firma -> sekcja Nabywca
+        supplier = payload.seller  # dostawca z PDF -> sekcja Sprzedawca
         invoice = {
             "kind": "vat",
             "income": 0,
+            # Numer z oryginalnej faktury (PDF). Bez niego Fakturownia nie nadaje numeru
+            # fakturze kosztowej i UI pokazuje pusty numer ("- - -").
+            "number": payload.number,
             "issue_date": issue_date,
             "sell_date": issue_date,
-            "seller_name": payload.seller.name,
-            "seller_tax_no": payload.seller.nip or payload.seller.vat_id,
-            "seller_country": payload.seller.country,
-            "buyer_name": payload.buyer.name,
-            "buyer_tax_no": payload.buyer.nip or payload.buyer.vat_id,
-            "buyer_country": payload.buyer.country,
+            "seller_name": recipient.name,
+            "seller_tax_no": recipient.nip or recipient.vat_id,
+            "seller_country": recipient.country,
+            "buyer_name": supplier.name,
+            "buyer_tax_no": supplier.nip or supplier.vat_id,
+            "buyer_country": supplier.country,
             "currency": payload.currency,
             "lang": "pl",
             "reverse_charge": payload.treatment in _REVERSE_CHARGE_TREATMENTS,

@@ -71,9 +71,11 @@ def test_post_builds_cost_invoice_and_returns_booking_result():
     assert inv["income"] == 0
     assert inv["kind"] == "vat"
     assert inv["issue_date"] == "2026-06-01"
-    assert inv["seller_name"] == "Dostawca"
-    assert inv["seller_tax_no"] == "5260001246"
-    assert inv["buyer_name"] == "My"
+    # Faktura kosztowa: my (payload.buyer) -> seller_* (sekcja Nabywca),
+    # dostawca (payload.seller) -> buyer_* (sekcja Sprzedawca). Patrz test swapu nizej.
+    assert inv["seller_name"] == "My"
+    assert inv["seller_tax_no"] == "1234567890"
+    assert inv["buyer_name"] == "Dostawca"
     assert inv["currency"] == "PLN"
     assert inv["positions"] == [
         {"name": "Usluga", "quantity": "2", "total_price_gross": "2460.00", "tax": 23}
@@ -81,6 +83,32 @@ def test_post_builds_cost_invoice_and_returns_booking_result():
     assert result.booking_id == "FZ/2026/1"
     assert result.sink == "fakturownia"
     assert result.status == "posted"
+
+
+def test_cost_invoice_swaps_parties_for_correct_display():
+    # Faktura kosztowa (income=0): Fakturownia renderuje pola seller_* w sekcji "Nabywca",
+    # a buyer_* w sekcji "Sprzedawca". Wiec nasza firma (payload.buyer) musi trafic do
+    # seller_*, a dostawca z PDF (payload.seller) do buyer_* — inaczej na wydruku
+    # sprzedawca i nabywca sa zamienieni.
+    sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
+    sink.post(_payload())  # seller="Dostawca"/5260001246, buyer="My"/1234567890
+    inv = client.calls[0][1]["invoice"]
+    # nasza firma -> seller_* (wyswietli sie jako Nabywca)
+    assert inv["seller_name"] == "My"
+    assert inv["seller_tax_no"] == "1234567890"
+    assert inv["seller_country"] == "PL"
+    # dostawca z PDF -> buyer_* (wyswietli sie jako Sprzedawca)
+    assert inv["buyer_name"] == "Dostawca"
+    assert inv["buyer_tax_no"] == "5260001246"
+    assert inv["buyer_country"] == "PL"
+
+
+def test_number_sent_from_invoice():
+    # Numer faktury kosztowej musi byc identyczny jak na PDF (payload.number),
+    # inaczej Fakturownia nie ma numeru i UI pokazuje pusty numer ("- - -").
+    sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
+    sink.post(_payload())
+    assert client.calls[0][1]["invoice"]["number"] == "FZ/1"
 
 
 def test_payment_to_set_from_due_date():
@@ -137,12 +165,14 @@ def test_post_raises_when_response_has_no_number_or_id():
         sink.post(_payload())
 
 
-def test_seller_tax_no_falls_back_to_vat_id_for_foreign_supplier():
+def test_tax_no_falls_back_to_vat_id_for_foreign_supplier():
+    # Dostawca z PDF trafia w buyer_* (faktura kosztowa), wiec fallback nip->vat_id
+    # ma dzialac na buyer_tax_no.
     sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
     payload = _payload()
     payload.seller = Party(name="Foreign Ltd", country="DE", vat_id="DE123456789")  # nip=None
     sink.post(payload)
-    assert client.calls[0][1]["invoice"]["seller_tax_no"] == "DE123456789"
+    assert client.calls[0][1]["invoice"]["buyer_tax_no"] == "DE123456789"
 
 
 def test_positions_maps_all_lines():
