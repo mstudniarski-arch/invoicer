@@ -60,3 +60,15 @@ def test_payload_is_independent_snapshot():
 def test_mapper_carries_issue_date():
     payload = invoice_to_booking_payload(_invoice())
     assert payload.issue_date == date(2026, 6, 1)
+
+
+def test_mapper_carries_due_date():
+    invoice = _invoice()
+    invoice.due_date = date(2021, 2, 10)
+    payload = invoice_to_booking_payload(invoice)
+    assert payload.due_date == date(2021, 2, 10)
+
+
+def test_mapper_due_date_none_when_absent():
+    payload = invoice_to_booking_payload(_invoice())
+    assert payload.due_date is None

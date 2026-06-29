@@ -31,7 +31,7 @@ class _FakeClient:
         return self._response
 
 
-def _payload(*, treatment: str | None = None) -> BookingPayload:
+def _payload(*, treatment: str | None = None, due_date: date | None = None) -> BookingPayload:
     line = LineItem(
         description="Usluga",
         quantity=Decimal("2"),
@@ -52,6 +52,7 @@ def _payload(*, treatment: str | None = None) -> BookingPayload:
         total_gross=Decimal("2460.00"),
         treatment=treatment,
         issue_date=date(2026, 6, 1),
+        due_date=due_date,
     )
 
 
@@ -80,6 +81,21 @@ def test_post_builds_cost_invoice_and_returns_booking_result():
     assert result.booking_id == "FZ/2026/1"
     assert result.sink == "fakturownia"
     assert result.status == "posted"
+
+
+def test_payment_to_set_from_due_date():
+    # Termin platnosci musi trafic do Fakturowni z faktury (payment_to), a nie byc
+    # liczony przez Fakturownie z issue_date + domyslny termin konta.
+    sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
+    sink.post(_payload(due_date=date(2021, 2, 10)))
+    assert client.calls[0][1]["invoice"]["payment_to"] == "2021-02-10"
+
+
+def test_payment_to_absent_when_no_due_date():
+    # Brak terminu na fakturze -> nie wysylamy payment_to (Fakturownia uzyje swojego domyslnego).
+    sink, client = _sink(_FakeResponse(201, {"id": 1, "number": "X"}))
+    sink.post(_payload(due_date=None))
+    assert "payment_to" not in client.calls[0][1]["invoice"]
 
 
 def test_post_falls_back_to_id_when_no_number():

@@ -61,25 +61,27 @@ class FakturowniaSink:
 
     def post(self, payload: BookingPayload) -> BookingResult:
         issue_date = payload.issue_date.isoformat() if payload.issue_date else self._clock()
-        body = {
-            "api_token": self._api_token,
-            "invoice": {
-                "kind": "vat",
-                "income": 0,
-                "issue_date": issue_date,
-                "sell_date": issue_date,
-                "seller_name": payload.seller.name,
-                "seller_tax_no": payload.seller.nip or payload.seller.vat_id,
-                "seller_country": payload.seller.country,
-                "buyer_name": payload.buyer.name,
-                "buyer_tax_no": payload.buyer.nip or payload.buyer.vat_id,
-                "buyer_country": payload.buyer.country,
-                "currency": payload.currency,
-                "lang": "pl",
-                "reverse_charge": payload.treatment in _REVERSE_CHARGE_TREATMENTS,
-                "positions": _positions(payload),
-            },
+        invoice = {
+            "kind": "vat",
+            "income": 0,
+            "issue_date": issue_date,
+            "sell_date": issue_date,
+            "seller_name": payload.seller.name,
+            "seller_tax_no": payload.seller.nip or payload.seller.vat_id,
+            "seller_country": payload.seller.country,
+            "buyer_name": payload.buyer.name,
+            "buyer_tax_no": payload.buyer.nip or payload.buyer.vat_id,
+            "buyer_country": payload.buyer.country,
+            "currency": payload.currency,
+            "lang": "pl",
+            "reverse_charge": payload.treatment in _REVERSE_CHARGE_TREATMENTS,
+            "positions": _positions(payload),
         }
+        # Termin platnosci bierzemy z faktury (payment_to). Gdy go nie podamy, Fakturownia
+        # wyliczy go sama z issue_date + domyslny termin konta — co dawalo bledna date.
+        if payload.due_date:
+            invoice["payment_to"] = payload.due_date.isoformat()
+        body = {"api_token": self._api_token, "invoice": invoice}
         url = f"https://{self._domain}.fakturownia.pl/invoices.json"
         resp = self._client.post(url, json=body)
         if not 200 <= resp.status_code < 300:

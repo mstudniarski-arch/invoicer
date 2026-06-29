@@ -21,6 +21,7 @@ class BookingPayload(BaseModel):
     total_gross: Decimal
     treatment: str | None = None  # traktowanie podatkowe — uzupelnia klasyfikacja (Plan 04)
     issue_date: date | None = None  # data wystawienia faktury (dla realnego sinka)
+    due_date: date | None = None  # termin platnosci z faktury (payment_to) — nie liczymy go sami
 
 
 class BookingResult(BaseModel):
@@ -46,4 +47,5 @@ def invoice_to_booking_payload(invoice: Invoice, treatment: str | None = None) -
         total_gross=invoice.total_gross,
         treatment=treatment,
         issue_date=invoice.issue_date,
+        due_date=invoice.due_date,
     )
