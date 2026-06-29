@@ -34,6 +34,7 @@ def build_invoice_graph(
     reasoner: ExceptionReasoner | None = None,
     store: LegalKnowledgeStore | None = None,
     clock: Callable[[], str] | None = None,
+    mark_read: Callable[[str], None] | None = None,
     checkpointer=None,
 ):
     """Montuje graf. Galaz zagraniczna: classify -> retrieve_legal_context -> reason_exception
@@ -52,7 +53,7 @@ def build_invoice_graph(
     builder.add_node("reason_exception", make_reason_exception_node(reasoner))
     builder.add_node("verify_grounding", make_verify_grounding_node())
     builder.add_node("human_review", human_review)
-    builder.add_node("book", make_book_node(sink, ledger, clock=clock))
+    builder.add_node("book", make_book_node(sink, ledger, clock=clock, mark_read=mark_read))
 
     builder.add_edge(START, "extract")
     builder.add_edge("extract", "validate")

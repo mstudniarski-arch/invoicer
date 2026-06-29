@@ -13,8 +13,38 @@ from invoicer.models import InvoiceDocument
 from invoicer.ports import EmailSource
 
 
-def test_scope_is_readonly():
-    assert GMAIL_SCOPES == ["https://www.googleapis.com/auth/gmail.readonly"]
+def test_scope_is_modify():
+    # modify (a nie readonly): po zaksiegowaniu oznaczamy mail jako przeczytany
+    # (removeLabelIds UNREAD) — readonly nie pozwala modyfikowac etykiet.
+    assert GMAIL_SCOPES == ["https://www.googleapis.com/auth/gmail.modify"]
+
+
+class _FakeModifyService:
+    """Self-returning fake: users().messages().modify(...).execute()."""
+
+    def __init__(self) -> None:
+        self.modify_calls: list[dict] = []
+
+    def users(self):
+        return self
+
+    def messages(self):
+        return self
+
+    def modify(self, **kwargs):
+        self.modify_calls.append(kwargs)
+        return self
+
+    def execute(self):
+        return None
+
+
+def test_mark_read_removes_unread_label():
+    svc = _FakeModifyService()
+    GmailAdapter(svc).mark_read("m1")
+    assert svc.modify_calls == [
+        {"userId": "me", "id": "m1", "body": {"removeLabelIds": ["UNREAD"]}}
+    ]
 
 
 def test_build_query_filters_unread_pdf_in_lookback_window():

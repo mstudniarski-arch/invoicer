@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from invoicer.models import InvoiceDocument
 
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
 def _build_query(sender: str, *, today: date, lookback_days: int = 3) -> str:
@@ -113,3 +113,15 @@ class GmailAdapter:
             if not page_token:
                 break
         return docs
+
+    def mark_read(self, message_id: str) -> None:
+        """Oznacza wiadomosc jako przeczytana (usuwa etykiete UNREAD).
+
+        Wolane po udanym zaksiegowaniu — faktura znika z is:unread (poza dedup).
+        Wymaga scope gmail.modify (readonly nie pozwala modyfikowac etykiet).
+        """
+        self._service.users().messages().modify(
+            userId=self._user_id,
+            id=message_id,
+            body={"removeLabelIds": ["UNREAD"]},
+        ).execute()

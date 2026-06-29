@@ -195,8 +195,17 @@ def route_after_review(state: InvoiceState) -> str:
     return "book" if state.get("human_decision") == "approve" else "end"
 
 
-def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str] | None = None):
-    """Wezel `book`: mapuje na dekret, ksieguje (sink) i dopisuje do ledger (audyt + duplikaty)."""
+def make_book_node(
+    sink: AccountingSink,
+    ledger: Ledger,
+    clock: Callable[[], str] | None = None,
+    mark_read: Callable[[str], None] | None = None,
+):
+    """Wezel `book`: mapuje na dekret, ksieguje (sink) i dopisuje do ledger (audyt + duplikaty).
+
+    `mark_read` (opcjonalne): po udanym zaksiegowaniu oznacza zrodlowy mail jako przeczytany.
+    Best-effort — blad oznaczenia NIE cofa zaksiegowanej faktury (tylko log).
+    """
     clock = clock or (lambda: datetime.now().isoformat(timespec="seconds"))
 
     def book(state: InvoiceState, config: RunnableConfig) -> dict:
@@ -231,6 +240,15 @@ def make_book_node(sink: AccountingSink, ledger: Ledger, clock: Callable[[], str
             treatment,
             thread_id,
         )
+        document = state.get("document")
+        message_id = document.message_id if document else None
+        if mark_read and message_id:
+            try:
+                mark_read(message_id)
+            except Exception:  # best-effort: faktura juz zaksiegowana, nie wywalaj flow
+                _logger.warning(
+                    "nie udalo sie oznaczyc maila %s jako przeczytany", message_id, exc_info=True
+                )
         return {"booking": result}
 
     return book

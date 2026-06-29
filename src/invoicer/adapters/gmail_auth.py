@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from invoicer.adapters.gmail import GMAIL_SCOPES
+# Umozliwia uruchomienie jako skrypt:  uv run src/invoicer/adapters/gmail_auth.py
+# Projekt nie jest instalowany jako pakiet (pytest uzywa pythonpath=src) — przy starcie
+# przez sciezke pliku dokladamy katalog `src` recznie, zeby `import invoicer` zadzialal.
+_SRC = Path(__file__).resolve().parents[2]
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from invoicer.adapters.gmail import GMAIL_SCOPES  # noqa: E402  (po bootstrapie sys.path)
 
 
 def gmail_service_from_token(token_path: Path, *, scopes: list[str] | None = None):
@@ -25,10 +33,9 @@ def authorize_gmail(
 ) -> None:
     """Jednorazowy interaktywny OAuth (otwiera przegladarke). Zapisuje token do `token_path`.
 
-    Uzycie (raz, lokalnie):
-        from pathlib import Path
-        from invoicer.adapters.gmail_auth import authorize_gmail
-        authorize_gmail(Path("client_secret.json"), Path("token.json"))
+    Uzycie (raz, lokalnie) — najprosciej jako skrypt z katalogu repo:
+        uv run src/invoicer/adapters/gmail_auth.py
+    (opcjonalnie wlasne sciezki dopisane na koncu: ... gmail_auth.py SECRET.json TOKEN.json)
     Pobierz `client_secret.json` z Google Cloud Console (OAuth client, typ Desktop).
     """
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -38,3 +45,13 @@ def authorize_gmail(
     )
     creds = flow.run_local_server(port=0)
     token_path.write_text(creds.to_json(), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    # Jednorazowa autoryzacja Gmaila:
+    #   uv run src/invoicer/adapters/gmail_auth.py [client_secret.json] [token.json]
+    # Otwiera przegladarke, prosi o zgode i zapisuje token.json ze scope = GMAIL_SCOPES.
+    secret = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("client_secret.json")
+    token = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("token.json")
+    authorize_gmail(secret, token)
+    print(f"OK: token zapisany do {token.resolve()} (scope: {GMAIL_SCOPES})")

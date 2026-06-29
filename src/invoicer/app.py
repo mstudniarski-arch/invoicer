@@ -100,6 +100,16 @@ def _real_claude_adapters(metrics: LlmMetrics):
 def _build_real_graph(settings: AppSettings, checkpointer, metrics: LlmMetrics):
     """Realne adaptery: Claude (z metrykami) + Fakturownia/MockSubiekt + ledger na wolumenie."""
     extractor, reasoner = _real_claude_adapters(metrics)
+
+    def _mark_email_read(message_id: str) -> None:
+        # Po zaksiegowaniu: oznacz zrodlowy mail jako przeczytany. Swiezy serwis z tokenu
+        # (booking jest rzadki, bramkowany czlowiekiem). Best-effort — book node lapie bledy.
+        from invoicer.adapters.gmail import GmailAdapter
+        from invoicer.adapters.gmail_auth import gmail_service_from_token
+
+        service = gmail_service_from_token(settings.data_dir / "token.json")
+        GmailAdapter(service).mark_read(message_id)
+
     return build_invoice_graph(
         extractor=extractor,
         reasoner=reasoner,
@@ -107,6 +117,7 @@ def _build_real_graph(settings: AppSettings, checkpointer, metrics: LlmMetrics):
         sink=build_sink(),
         checkpointer=checkpointer,
         store=build_legal_store(),
+        mark_read=_mark_email_read,
     )
 
 

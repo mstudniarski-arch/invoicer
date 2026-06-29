@@ -198,6 +198,49 @@ def test_book_node_posts_and_records_ledger(tmp_path):
     assert entry.thread_id == "t-book"
 
 
+def _doc_with_id(message_id: str | None) -> InvoiceDocument:
+    return InvoiceDocument(
+        sender="a@b.pl",
+        received_at=datetime(2026, 6, 1),
+        filename="x.pdf",
+        content=b"%PDF",
+        message_id=message_id,
+    )
+
+
+def _book_state(message_id: str | None):
+    return {
+        "invoice": _invoice(),
+        "classification": Classification(
+            treatment=TaxTreatment.KRAJOWA, country_bucket=CountryBucket.PL
+        ),
+        "document": _doc_with_id(message_id),
+    }
+
+
+def test_book_node_marks_email_read_after_booking(tmp_path):
+    seen: list[str] = []
+    node = make_book_node(MockSubiektSink(), Ledger(tmp_path / "l.jsonl"), mark_read=seen.append)
+    node(_book_state("m1"), {"configurable": {}})
+    assert seen == ["m1"]
+
+
+def test_book_node_skips_mark_read_when_no_message_id(tmp_path):
+    seen: list[str] = []
+    node = make_book_node(MockSubiektSink(), Ledger(tmp_path / "l.jsonl"), mark_read=seen.append)
+    node(_book_state(None), {"configurable": {}})
+    assert seen == []
+
+
+def test_book_node_mark_read_failure_does_not_break_booking(tmp_path):
+    def boom(_message_id: str) -> None:
+        raise RuntimeError("gmail 403")
+
+    node = make_book_node(MockSubiektSink(), Ledger(tmp_path / "l.jsonl"), mark_read=boom)
+    update = node(_book_state("m1"), {"configurable": {}})
+    assert update["booking"].booking_id == "MOCK-FV/1"  # booking succeeded mimo bledu mark_read
+
+
 def test_route_after_review_edit_goes_to_end():
     assert route_after_review({"human_decision": "edit"}) == "end"
 
