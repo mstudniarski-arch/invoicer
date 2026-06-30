@@ -103,6 +103,23 @@ def test_cost_invoice_swaps_parties_for_correct_display():
     assert inv["buyer_country"] == "PL"
 
 
+def test_department_id_replaces_seller_fields():
+    # Gdy podany department_id (nasza firma jako ISTNIEJACY dzial w Fakturowni), wysylamy
+    # department_id zamiast seller_* — inaczej Fakturownia probuje utworzyc nowy dzial i przy
+    # wlaczonym zabezpieczeniu konta zwraca 422 "nie pozwala na utworzenie dzialu".
+    client = _FakeClient(_FakeResponse(201, {"id": 1, "number": "X"}))
+    sink = FakturowniaSink(client, domain="acme", api_token="TKN", department_id=2010019)
+    sink.post(_payload())
+    inv = client.calls[0][1]["invoice"]
+    assert inv["department_id"] == 2010019
+    assert "seller_name" not in inv
+    assert "seller_tax_no" not in inv
+    assert "seller_country" not in inv
+    # dostawca z PDF nadal jako buyer_* (sekcja Sprzedawca)
+    assert inv["buyer_name"] == "Dostawca"
+    assert inv["buyer_tax_no"] == "5260001246"
+
+
 def test_number_sent_from_invoice():
     # Numer faktury kosztowej musi byc identyczny jak na PDF (payload.number),
     # inaczej Fakturownia nie ma numeru i UI pokazuje pusty numer ("- - -").

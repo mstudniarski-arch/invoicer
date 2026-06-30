@@ -52,11 +52,13 @@ class FakturowniaSink:
         *,
         domain: str,
         api_token: str,
+        department_id: int | None = None,
         clock: Callable[[], str] = _today_iso,
     ) -> None:
         self._client = client
         self._domain = domain
         self._api_token = api_token
+        self._department_id = department_id
         self._clock = clock
 
     def post(self, payload: BookingPayload) -> BookingResult:
@@ -74,9 +76,6 @@ class FakturowniaSink:
             "number": payload.number,
             "issue_date": issue_date,
             "sell_date": issue_date,
-            "seller_name": recipient.name,
-            "seller_tax_no": recipient.nip or recipient.vat_id,
-            "seller_country": recipient.country,
             "buyer_name": supplier.name,
             "buyer_tax_no": supplier.nip or supplier.vat_id,
             "buyer_country": supplier.country,
@@ -85,6 +84,15 @@ class FakturowniaSink:
             "reverse_charge": payload.treatment in _REVERSE_CHARGE_TREATMENTS,
             "positions": _positions(payload),
         }
+        # Nasza firma (sekcja Nabywca): jako ISTNIEJACY dzial przez department_id, jesli
+        # skonfigurowany. Inaczej Fakturownia probuje utworzyc nowy dzial z seller_* i przy
+        # wlaczonym zabezpieczeniu konta zwraca 422 ("nie pozwala na utworzenie dzialu").
+        if self._department_id is not None:
+            invoice["department_id"] = self._department_id
+        else:
+            invoice["seller_name"] = recipient.name
+            invoice["seller_tax_no"] = recipient.nip or recipient.vat_id
+            invoice["seller_country"] = recipient.country
         # Termin platnosci bierzemy z faktury (payment_to). Gdy go nie podamy, Fakturownia
         # wyliczy go sama z issue_date + domyslny termin konta — co dawalo bledna date.
         if payload.due_date:
@@ -108,12 +116,16 @@ class FakturowniaSink:
 def build_fakturownia_sink() -> FakturowniaSink:
     """Buduje FakturowniaSink z konfiguracji env (FAKTUROWNIA_API_TOKEN, FAKTUROWNIA_DOMAIN).
 
+    Opcjonalny FAKTUROWNIA_DEPARTMENT_ID — id istniejacego dzialu (naszej firmy) uzywane
+    zamiast seller_*, zeby Fakturownia nie tworzyla nowego dzialu (422 przy zabezpieczeniu konta).
     Realny klient httpx; uzywane przez test live i ewentualne reczne wpiecie. KeyError gdy brak env.
     """
     import httpx
 
+    dept = os.environ.get("FAKTUROWNIA_DEPARTMENT_ID")
     return FakturowniaSink(
         httpx.Client(timeout=30.0),
         domain=os.environ["FAKTUROWNIA_DOMAIN"],
         api_token=os.environ["FAKTUROWNIA_API_TOKEN"],
+        department_id=int(dept) if dept else None,
     )
