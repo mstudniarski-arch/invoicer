@@ -17,12 +17,26 @@ def gmail_service_from_token(token_path: Path, *, scopes: list[str] | None = Non
     """Buduje zasob Gmail API z zapisanego tokenu (odswieza, jesli wygasl).
 
     Wymaga wczesniejszego `authorize_gmail` (jednorazowy OAuth). Sieciowe — nie w CI.
+
+    NIE ograniczamy poswiadczen do `scopes` przy odswiezaniu: gdy creds maja ustawiony
+    scope, google-auth wysyla `scope` w zadaniu refresh, a endpoint Google potrafi to
+    odrzucic (`invalid_scope: Bad Request`) mimo poprawnego grantu — obserwowane na prod,
+    nie lokalnie (roznica wersji biblioteki). Pomijajac scope, refresh zwraca uprawnienia
+    z samego grantu (modify), wiec jest odporny na te roznice. Initial consent (scope) jest
+    w `authorize_gmail`, nie tutaj.
     """
+    import json
+
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    creds = Credentials.from_authorized_user_file(str(token_path), scopes or GMAIL_SCOPES)
+    info = json.loads(token_path.read_text(encoding="utf-8"))
+    if scopes is None:
+        info.pop("scopes", None)  # bez scope -> refresh nie wysyla 'scope' -> brak invalid_scope
+        creds = Credentials.from_authorized_user_info(info)
+    else:
+        creds = Credentials.from_authorized_user_info(info, scopes)
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
